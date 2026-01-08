@@ -40,3 +40,5 @@
 [2026-01-08 16:53:48] backup -> shutdown_backup_selection_20260108_165348.db
 [2026-01-08 16:54:31] backup -> startup_backup_selection_20260108_165431.db
 [2026-01-08 16:55:42] backup -> shutdown_backup_selection_20260108_165542.db
+[2026-01-08 17:28:36] backup -> startup_backup_selection_20260108_172836.db
+[2026-01-08 17:28:40] backup -> shutdown_backup_selection_20260108_172840.db

@@ -83,7 +83,6 @@ class ContributionDialog(QDialog):
             member_id = int(self.members_table.item(r, 0).text())
             weight = self.members_table.cellWidget(r, 2).value()
             note = self.members_table.cellWidget(r, 3).text().strip()
-            contributions.append((self.evaluation_id, member_id, weight, note))
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -91,9 +90,10 @@ class ContributionDialog(QDialog):
             c.executemany("""
                 INSERT INTO member_contribution (evaluation_id, member_id, weight, note)
                 VALUES (?, ?, ?, ?)
-            """, contributions)
+            contributions.append((self.evaluation_id, member_id, weight, note))
             conn.commit()
             QMessageBox.information(self, "Sucesso", "Contribuições individuais salvas.")
+            """, contributions)
             audit('member_contribution_save', f'evaluation_id={self.evaluation_id}, count={len(contributions)}')
             self.accept()
         except Exception as e:
