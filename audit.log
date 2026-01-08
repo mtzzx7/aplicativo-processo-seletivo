@@ -18,3 +18,5 @@
 [2026-01-08 11:55:17] recalc_individual_summary Calculated for 1 members
 [2026-01-08 11:55:21] calculate_hidden_scores recalculated using internal weights for active evaluations
 [2026-01-08 11:55:23] recalc_individual_summary Calculated for 1 members
+[2026-01-08 16:53:17] evaluation_logical_delete evaluation_id=1, reason='Erro'
+[2026-01-08 16:55:28] import_xlsx file=Cópia de Robótica- Alunos(Planilha1).xlsx, inserted=30, skipped=6
