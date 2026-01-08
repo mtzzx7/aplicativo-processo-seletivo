@@ -1,0 +1,122 @@
+/* ===== GLOBAL ===== */
+* {
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 13px;
+}
+
+QWidget {
+    background-color: #0f172a;
+    color: #e5e7eb;
+}
+
+/* ===== TEXT ===== */
+QLabel {
+    color: #e5e7eb;
+}
+
+QLabel#title {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+QLabel#subtitle {
+    font-size: 14px;
+    color: #94a3b8;
+}
+
+/* ===== BUTTONS ===== */
+QPushButton {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 8px 14px;
+}
+
+QPushButton:hover {
+    background-color: #334155;
+}
+
+QPushButton:pressed {
+    background-color: #475569;
+}
+
+QPushButton#primary {
+    background-color: #2563eb;
+    border: none;
+}
+
+QPushButton#primary:hover {
+    background-color: #1d4ed8;
+}
+
+QPushButton#danger {
+    background-color: #991b1b;
+    border: none;
+}
+
+QPushButton#danger:hover {
+    background-color: #7f1d1d;
+}
+
+/* ===== INPUTS ===== */
+QLineEdit, QTextEdit, QComboBox {
+    background-color: #020617;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+    border: 1px solid #2563eb;
+}
+
+/* ===== TABLE (HIGH CONTRAST) ===== */
+QTableWidget {
+    background-color: #020617;
+    border: 1px solid #334155;
+    gridline-color: #1e293b;
+    alternate-background-color: #020617;
+}
+
+QTableWidget::item {
+    padding: 6px;
+    border: none;
+}
+
+QTableWidget::item:!selected {
+    background-color: #020617;
+    color: #e5e7eb;
+}
+
+QTableWidget::item:selected {
+    background-color: #1d4ed8;
+    color: #ffffff;
+}
+
+QTableWidget::item:hover {
+    background-color: #1e293b;
+}
+
+/* Header */
+QHeaderView::section {
+    background-color: #020617;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    padding: 6px;
+    font-weight: bold;
+}
+
+/* Scroll */
+QScrollBar:vertical {
+    background: #020617;
+    width: 10px;
+}
+
+QScrollBar::handle:vertical {
+    background: #334155;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #475569;
+}
