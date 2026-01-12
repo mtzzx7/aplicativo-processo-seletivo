@@ -1,0 +1,18 @@
+
+# Robot One Selection - Configurações
+approved_count = 5
+waitlist_count = 5
+
+[presence]
+penalty_threshold = 0.75
+penalty_factor = 0.9
+
+[ui]
+restricted_tabs_when_closed = true
+# 6 = "Sobre"; 7 = "Dashboard"; 8 = "Admin (oculto)"
+default_locked_redirect_index = 6
+
+[default_weights]
+immersion = 0.3
+development = 0.5
+presentation = 0.2

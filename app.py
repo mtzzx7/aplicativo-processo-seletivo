@@ -463,12 +463,34 @@ class MainWindow(QMainWindow):
                 self.sidebar.setCurrentRow(0)
                 return
         self.stack.setCurrentIndex(idx)
+        closed = get_process_status() == "ENCERRADO"
+        allowed = {6, 7, 8}  # Sobre, Dashboard, Admin
+        if closed and idx not in allowed:
+            QMessageBox.information(self, "Processo Encerrado",
+                                    "As abas de cadastro e edição estão bloqueadas. Use Sobre, Dashboard ou Admin.")
+            self.sidebar.setCurrentRow(6)  # Redireciona para Sobre
+            self.stack.setCurrentIndex(6)
+            return
+    
+    
+    def apply_process_lockdown(self):
+        closed = get_process_status() == "ENCERRADO"
+        allowed = {6, 7, 8}
+        for i in range(self.sidebar.count()):
+            item = self.sidebar.item(i)
+            if closed and i not in allowed:
+                # Desabilita se fechado
+                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+            else:
+                # Reabilita se aberto
+                item.setFlags(item.flags() | Qt.ItemIsEnabled)
 
     def update_process_status_display(self):
         status = get_process_status()
         self.process_status_label.setText(f"Processo Seletivo: <b>{status}</b>")
         if status == "ENCERRADO":
             self.process_status_label.setStyleSheet("color: red;")
+            self.apply_process_lockdown()
         else:
             self.process_status_label.setStyleSheet("color: green;")
 
@@ -1087,6 +1109,7 @@ class MainWindow(QMainWindow):
             """, (team_id, judge, imm, dev, pres, "", session_id, comment))
             evaluation_id = cur.lastrowid
             conn.commit()
+
             QMessageBox.information(self, "OK", f"Avaliação da equipe registrada (ID: {evaluation_id}).\nAgora, insira as contribuições individuais.")
             
             # Abrir diálogo de contribuição
@@ -2104,12 +2127,15 @@ class EditEvaluationDialog(QDialog):
         self.accept()
 
 
+
+
 class CandidateDialog(QDialog):
     def __init__(self, candidate_id:int, parent=None):
         super().__init__(parent)
         self.cid = candidate_id
         self.setWindowTitle(f"Candidato {candidate_id}")
         self.resize(640,550)
+
         layout = QVBoxLayout(self)
 
         # Formulário de edição
@@ -2141,19 +2167,22 @@ class CandidateDialog(QDialog):
         col_left.addWidget(self.member_of)
         rem = QPushButton("Remover da equipe selecionada")
         rem.setObjectName("danger")
-        rem.clicked.connect(self.remove_from_team)
+        rem.clicked.connect(self.remove_from_team)   # <-- precisa deste método
         col_left.addWidget(rem)
         h.addLayout(col_left)
+
         col_right = QVBoxLayout()
         col_right.addWidget(QLabel("Equipes disponíveis"))
         self.available_teams = QListWidget()
         col_right.addWidget(self.available_teams)
         add = QPushButton("Adicionar à equipe selecionada")
         add.setObjectName("primary")
-        add.clicked.connect(self.add_to_team)
+        add.clicked.connect(self.add_to_team)       # <-- e deste também
         col_right.addWidget(add)
         h.addLayout(col_right)
+
         layout.addLayout(h)
+
         self.load_data()
 
     def load_data(self):
@@ -2173,6 +2202,7 @@ class CandidateDialog(QDialog):
         self.member_of.clear()
         for tid,tname in mems:
             self.member_of.addItem(f"{tid} - {tname}")
+
         c.execute("SELECT id,name FROM teams WHERE id NOT IN (SELECT team_id FROM team_members WHERE candidate_id=?)", (self.cid,))
         avail = c.fetchall()
         self.available_teams.clear()
@@ -2187,16 +2217,14 @@ class CandidateDialog(QDialog):
         cpf = self.cpf_in.text().strip()
         phone = self.phone_in.text().strip()
         grade = self.grade_in.text().strip()
-
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
             return
-
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("""
             UPDATE candidates SET
-                name=?, email=?, notes=?, cpf=?, phone=?, grade=?
+            name=?, email=?, notes=?, cpf=?, phone=?, grade=?
             WHERE id=?
         """, (name, email, notes, cpf, phone, grade, self.cid))
         conn.commit()
@@ -2204,6 +2232,56 @@ class CandidateDialog(QDialog):
         QMessageBox.information(self, "Sucesso", "Candidato atualizado.")
         self.accept()
 
+    # >>> ADICIONADOS ABAIXO <<<
+    def remove_from_team(self):
+        selected_item = self.member_of.currentItem()
+        if not selected_item:
+            QMessageBox.warning(self, "Erro", "Selecione uma equipe para remover.")
+            return
+        try:
+            team_id = int(selected_item.text().split(" - ")[0])
+        except Exception:
+            QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
+            return
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        try:
+            c.execute("DELETE FROM team_members WHERE team_id=? AND candidate_id=?", (team_id, self.cid))
+            conn.commit()
+            audit('team_member_remove', f'team={team_id}, candidate={self.cid}')
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Não foi possível remover: {e}")
+        finally:
+            conn.close()
+
+        self.load_data()
+
+    def add_to_team(self):
+        selected_item = self.available_teams.currentItem()
+        if not selected_item:
+            QMessageBox.warning(self, "Erro", "Selecione uma equipe para adicionar.")
+            return
+        try:
+            team_id = int(selected_item.text().split(" - ")[0])
+        except Exception:
+            QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
+            return
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        try:
+            c.execute("INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)", (team_id, self.cid))
+            conn.commit()
+            audit('team_member_add', f'team={team_id}, candidate={self.cid}')
+        except sqlite3.IntegrityError:
+            QMessageBox.warning(self, "Erro", "Este candidato já está na equipe.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Não foi possível adicionar: {e}")
+        finally:
+            conn.close()
+
+        self.load_data()
 
 class ImportPreviewDialog(QDialog):
     def __init__(self, headers, preview_rows, parent=None):
@@ -2330,43 +2408,68 @@ class TeamMemberDialog(QDialog):
             self.candidates_list.addItem(item)
         conn.close()
 
-    def add_member(self):
-        selected_item = self.candidates_list.currentItem()
+    
+    def remove_from_team(self):
+        selected_item = self.member_of.currentItem()
         if not selected_item:
-            QMessageBox.warning(self, "Ação inválida", "Selecione um candidato para adicionar.")
+            QMessageBox.warning(self, "Erro", "Selecione uma equipe para remover.")
             return
-        candidate_id = selected_item.data(Qt.UserRole)
+
+        # Formato da linha é "ID - Nome", então pegamos o ID antes do " - "
+        try:
+            team_id = int(selected_item.text().split(" - ")[0])
+        except Exception:
+            QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
+            return
+
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         try:
-            c.execute("INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)", (self.team_id, candidate_id))
+            c.execute(
+                "DELETE FROM team_members WHERE team_id=? AND candidate_id=?",
+                (team_id, self.cid)
+            )
             conn.commit()
-            audit('team_member_add', f'team={self.team_id}, candidate={candidate_id}')
-        except sqlite3.IntegrityError:
-            QMessageBox.warning(self, "Erro", "Este membro já está na equipe.")
+            audit('team_member_remove', f'team={team_id}, candidate={self.cid}')
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Banco de Dados", f"Não foi possível adicionar o membro: {e}")
+            QMessageBox.critical(self, "Erro", f"Não foi possível remover: {e}")
         finally:
             conn.close()
+
+        # Atualiza as listas
         self.load_data()
 
-    def remove_member(self):
-        selected_item = self.members_list.currentItem()
+    def add_to_team(self):
+        selected_item = self.available_teams.currentItem()
         if not selected_item:
-            QMessageBox.warning(self, "Ação inválida", "Selecione um membro para remover.")
+            QMessageBox.warning(self, "Erro", "Selecione uma equipe para adicionar.")
             return
-        candidate_id = selected_item.data(Qt.UserRole)
+
+        try:
+            team_id = int(selected_item.text().split(" - ")[0])
+        except Exception:
+            QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
+            return
+
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         try:
-            c.execute("DELETE FROM team_members WHERE team_id = ? AND candidate_id = ?", (self.team_id, candidate_id))
+            c.execute(
+                "INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)",
+                (team_id, self.cid)
+            )
             conn.commit()
-            audit('team_member_remove', f'team={self.team_id}, candidate={candidate_id}')
+            audit('team_member_add', f'team={team_id}, candidate={self.cid}')
+        except sqlite3.IntegrityError:
+            QMessageBox.warning(self, "Erro", "Este candidato já está na equipe.")
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Banco de Dados", f"Não foi possível remover o membro: {e}")
+            QMessageBox.critical(self, "Erro", f"Não foi possível adicionar: {e}")
         finally:
             conn.close()
+
+        # Atualiza as listas
         self.load_data()
+
 
 # --------------------------------
 # MAIN

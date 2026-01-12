@@ -20,3 +20,11 @@
 [2026-01-08 11:55:23] recalc_individual_summary Calculated for 1 members
 [2026-01-08 16:53:17] evaluation_logical_delete evaluation_id=1, reason='Erro'
 [2026-01-08 16:55:28] import_xlsx file=Cópia de Robótica- Alunos(Planilha1).xlsx, inserted=30, skipped=6
+[2026-01-12 16:02:17] process_status_change status=ENCERRADO
+[2026-01-12 16:02:31] process_status_change status=ABERTO
+[2026-01-12 16:04:24] process_status_change status=ABERTO
+[2026-01-12 16:04:35] process_status_change status=ENCERRADO
+[2026-01-12 16:04:42] process_status_change status=ABERTO
+[2026-01-12 16:04:58] process_status_change status=ENCERRADO
+[2026-01-12 16:05:22] process_status_change status=ABERTO
+[2026-01-12 16:08:31] auto_assign size=1,assigned=28
