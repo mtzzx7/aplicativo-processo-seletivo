@@ -28,7 +28,7 @@ class ContributionDialog(QDialog):
         self.resize(600, 400)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Ajuste o peso de contribuição (0.8 a 1.2). Padrão: 1.0"))
+        layout.addWidget(QLabel("Ajuste o peso de contribuição (0.1 a 1.2). Padrão: 1.0"))
 
         self.members_table = QTableWidget(0, 4)
         self.members_table.setHorizontalHeaderLabels(["ID", "Nome", "Peso", "Obs. Interna"])
@@ -59,7 +59,7 @@ class ContributionDialog(QDialog):
             self.members_table.setItem(r, 1, QTableWidgetItem(name))
 
             weight_spinbox = QDoubleSpinBox()
-            weight_spinbox.setRange(0.8, 1.2)
+            weight_spinbox.setRange(0.1, 1.2)
             weight_spinbox.setSingleStep(0.1)
             weight_spinbox.setValue(1.0)
             self.members_table.setCellWidget(r, 2, weight_spinbox)
@@ -83,6 +83,7 @@ class ContributionDialog(QDialog):
             member_id = int(self.members_table.item(r, 0).text())
             weight = self.members_table.cellWidget(r, 2).value()
             note = self.members_table.cellWidget(r, 3).text().strip()
+            contributions.append((self.evaluation_id, member_id, weight, note))
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -90,10 +91,9 @@ class ContributionDialog(QDialog):
             c.executemany("""
                 INSERT INTO member_contribution (evaluation_id, member_id, weight, note)
                 VALUES (?, ?, ?, ?)
-            contributions.append((self.evaluation_id, member_id, weight, note))
+            """, contributions)
             conn.commit()
             QMessageBox.information(self, "Sucesso", "Contribuições individuais salvas.")
-            """, contributions)
             audit('member_contribution_save', f'evaluation_id={self.evaluation_id}, count={len(contributions)}')
             self.accept()
         except Exception as e:
@@ -666,6 +666,9 @@ class MainWindow(QMainWindow):
             idx_name, idx_email, idx_notes, skip_dup, idx_cpf, idx_phone, idx_grade = dlg.mapping_indices()
             conn = sqlite3.connect(DB_PATH); c = conn.cursor()
             for r in data_rows:
+                if all(val is None or str(val).strip() == '' for val in r):
+                    skipped += 1
+                    continue
                 def get_idx(r, idx):
                     try:
                         v = r[idx]
@@ -726,6 +729,9 @@ class MainWindow(QMainWindow):
             for r in rows:
                 if '__raw__' in r:
                     raw = r['__raw__']
+                    if all(val.strip() == '' for val in raw):
+                        skipped += 1
+                        continue
                     name = raw[idx_name].strip() if len(raw) > idx_name else ''
                     email = raw[idx_email].strip() if len(raw) > idx_email else ''
                     notes = raw[idx_notes].strip() if len(raw) > idx_notes else ''
@@ -733,6 +739,9 @@ class MainWindow(QMainWindow):
                     phone = raw[idx_phone].strip() if len(raw) > idx_phone else ''
                     grade = raw[idx_grade].strip() if len(raw) > idx_grade else ''
                 else:
+                    if all(val.strip() == '' for val in r.values()):
+                        skipped += 1
+                        continue
                     def get_by_index(d, idx):
                         try:
                             key = list(d.keys())[idx]
@@ -2409,65 +2418,44 @@ class TeamMemberDialog(QDialog):
         conn.close()
 
     
-    def remove_from_team(self):
-        selected_item = self.member_of.currentItem()
+    def remove_member(self):
+        selected_item = self.members_list.currentItem()
         if not selected_item:
-            QMessageBox.warning(self, "Erro", "Selecione uma equipe para remover.")
+            QMessageBox.warning(self, "Erro", "Selecione um membro para remover.")
             return
-
-        # Formato da linha é "ID - Nome", então pegamos o ID antes do " - "
-        try:
-            team_id = int(selected_item.text().split(" - ")[0])
-        except Exception:
-            QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
-            return
+        candidate_id = selected_item.data(Qt.UserRole)
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         try:
-            c.execute(
-                "DELETE FROM team_members WHERE team_id=? AND candidate_id=?",
-                (team_id, self.cid)
-            )
+            c.execute("DELETE FROM team_members WHERE team_id=? AND candidate_id=?", (self.team_id, candidate_id))
             conn.commit()
-            audit('team_member_remove', f'team={team_id}, candidate={self.cid}')
+            audit('team_member_remove', f'team={self.team_id}, candidate={candidate_id}')
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Não foi possível remover: {e}")
         finally:
             conn.close()
-
-        # Atualiza as listas
         self.load_data()
 
-    def add_to_team(self):
-        selected_item = self.available_teams.currentItem()
+    def add_member(self):
+        selected_item = self.candidates_list.currentItem()
         if not selected_item:
-            QMessageBox.warning(self, "Erro", "Selecione uma equipe para adicionar.")
+            QMessageBox.warning(self, "Erro", "Selecione um candidato para adicionar.")
             return
-
-        try:
-            team_id = int(selected_item.text().split(" - ")[0])
-        except Exception:
-            QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
-            return
+        candidate_id = selected_item.data(Qt.UserRole)
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         try:
-            c.execute(
-                "INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)",
-                (team_id, self.cid)
-            )
+            c.execute("INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)", (self.team_id, candidate_id))
             conn.commit()
-            audit('team_member_add', f'team={team_id}, candidate={self.cid}')
+            audit('team_member_add', f'team={self.team_id}, candidate={candidate_id}')
         except sqlite3.IntegrityError:
             QMessageBox.warning(self, "Erro", "Este candidato já está na equipe.")
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Não foi possível adicionar: {e}")
         finally:
             conn.close()
-
-        # Atualiza as listas
         self.load_data()
 
 

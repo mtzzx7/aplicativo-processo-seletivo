@@ -28,3 +28,29 @@
 [2026-01-12 16:04:58] process_status_change status=ENCERRADO
 [2026-01-12 16:05:22] process_status_change status=ABERTO
 [2026-01-12 16:08:31] auto_assign size=1,assigned=28
+[2026-01-14 15:04:50] import_xlsx file=Robótica- Alunos(PlanilhaOficial).xlsx, inserted=30, skipped=1
+[2026-01-14 15:05:53] auto_assign size=3,assigned=30
+[2026-01-14 15:16:48] team_member_add team=1, candidate=18
+[2026-01-14 15:16:49] team_member_add team=1, candidate=19
+[2026-01-14 15:16:50] team_member_add team=1, candidate=22
+[2026-01-14 15:16:51] team_member_add team=1, candidate=24
+[2026-01-14 15:16:52] team_member_add team=1, candidate=26
+[2026-01-14 15:17:52] evaluation_logical_delete evaluation_id=2, reason='1''
+[2026-01-14 15:18:04] recalc_individual_summary Calculated for 0 members
+[2026-01-14 15:18:06] recalc_individual_summary Calculated for 0 members
+[2026-01-14 15:18:06] recalc_individual_summary Calculated for 0 members
+[2026-01-14 15:18:06] recalc_individual_summary Calculated for 0 members
+[2026-01-14 15:18:13] save_internal_weights immersion=0.3,development=0.5,presentation=0.2
+[2026-01-14 15:18:21] recalc_individual_summary Calculated for 0 members
+[2026-01-14 15:19:44] member_contribution_save evaluation_id=3, count=8
+[2026-01-14 15:19:52] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:19:52] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:19:52] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:20:05] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:20:05] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:20:07] calculate_hidden_scores recalculated using internal weights for active evaluations
+[2026-01-14 15:20:09] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:20:20] export_final_result file=resultado_final_oficial_20260114.csv, members=8
+[2026-01-14 15:25:45] recalc_individual_summary Calculated for 8 members
+[2026-01-14 15:25:55] export_ranking file=ranking_interno_20260114.csv, members=8
+[2026-01-14 15:32:07] import_xlsx file=Robótica- Alunos(PlanilhaOficial).xlsx, inserted=30, skipped=1
