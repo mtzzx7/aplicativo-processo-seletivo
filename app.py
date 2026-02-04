@@ -448,6 +448,21 @@ class MainWindow(QMainWindow):
 
         self.sidebar.setCurrentRow(0)
 
+    def _get_selected_id(self, table: QTableWidget, label: str, col: int = 0):
+        row = table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "Ação", f"Selecione um registro de {label} primeiro.")
+            return None
+        item = table.item(row, col)
+        if not item:
+            QMessageBox.warning(self, "Ação", f"Não foi possível ler o ID de {label}.")
+            return None
+        try:
+            return int(item.text())
+        except ValueError:
+            QMessageBox.warning(self, "Ação", f"ID inválido para {label}.")
+            return None
+
     def on_nav(self, idx):
         # Protege Admin por PIN (hash na tabela settings)
         if idx == 8:
@@ -830,6 +845,8 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         refresh = QPushButton("Atualizar")
         refresh.clicked.connect(self.load_teams)
+        edit_team = QPushButton("Editar equipe")
+        edit_team.clicked.connect(self.edit_selected_team)
         manage = QPushButton("Gerenciar membros")
         manage.clicked.connect(self.open_manage_dialog)
         delete_team = QPushButton("Remover equipe")
@@ -837,6 +854,7 @@ class MainWindow(QMainWindow):
         auto_btn = QPushButton("Auto-atribuir")
         auto_btn.clicked.connect(self.auto_assign_dialog)
         btn_row.addWidget(refresh)
+        btn_row.addWidget(edit_team)
         btn_row.addWidget(manage)
         btn_row.addWidget(delete_team)
         btn_row.addWidget(auto_btn)
@@ -908,6 +926,23 @@ class MainWindow(QMainWindow):
         conn.close()
         self.load_teams()
 
+    def edit_selected_team(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível editar equipes.")
+            return
+        team_id = self._get_selected_id(self.team_table, "equipe")
+        if team_id is None:
+            return
+        dlg = TeamEditDialog(team_id, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.load_teams()
+            try:
+                fill_team_combobox(self.eval_team_cb)
+                fill_team_combobox(self.a_team_cb)
+                fill_team_combobox(self.d_team_cb)
+            except Exception:
+                pass
+
     def open_manage_dialog(self):
         team_id = None
         sel = self.team_table.currentRow() if hasattr(self, 'team_table') else -1
@@ -956,7 +991,15 @@ class MainWindow(QMainWindow):
         refresh = QPushButton("Atualizar")
         refresh.setObjectName("primary")
         refresh.clicked.connect(self.load_sessions)
+        edit_btn = QPushButton("Editar sessão")
+        edit_btn.setObjectName("primary")
+        edit_btn.clicked.connect(self.edit_selected_session)
+        delete_btn = QPushButton("Remover sessão")
+        delete_btn.setObjectName("danger")
+        delete_btn.clicked.connect(self.delete_selected_session)
         btns.addWidget(refresh)
+        btns.addWidget(edit_btn)
+        btns.addWidget(delete_btn)
         v.addLayout(btns)
         self.load_sessions()
         return w
@@ -986,6 +1029,49 @@ class MainWindow(QMainWindow):
             for cidx,val in enumerate(row):
                 self.session_table.setItem(r,cidx,QTableWidgetItem(str(val)))
 
+    def edit_selected_session(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível editar sessões.")
+            return
+        session_id = self._get_selected_id(self.session_table, "sessão")
+        if session_id is None:
+            return
+        dlg = SessionEditDialog(session_id, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.load_sessions()
+            try:
+                fill_session_combobox(self.eval_session_cb)
+                fill_session_combobox(self.a_session_cb)
+            except Exception:
+                pass
+
+    def delete_selected_session(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível excluir sessões.")
+            return
+        session_id = self._get_selected_id(self.session_table, "sessão")
+        if session_id is None:
+            return
+        ok = QMessageBox.question(
+            self,
+            "Confirmar",
+            f"Remover sessão {session_id}? Presenças e avaliações associadas permanecerão.",
+        )
+        if ok != QMessageBox.Yes:
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM training_sessions WHERE id=?", (session_id,))
+        conn.commit()
+        conn.close()
+        audit('session_delete', f'session_id={session_id}')
+        self.load_sessions()
+        try:
+            fill_session_combobox(self.eval_session_cb)
+            fill_session_combobox(self.a_session_cb)
+        except Exception:
+            pass
+
     # --------------------------
     # PÁGINA: PRESENÇA (IDs via ComboBox)
     # --------------------------
@@ -1012,7 +1098,17 @@ class MainWindow(QMainWindow):
         refresh = QPushButton("Atualizar")
         refresh.setObjectName("primary")
         refresh.clicked.connect(self.load_attendance)
-        v.addWidget(refresh)
+        edit_btn = QPushButton("Editar presença")
+        edit_btn.setObjectName("primary")
+        edit_btn.clicked.connect(self.edit_selected_attendance)
+        delete_btn = QPushButton("Remover presença")
+        delete_btn.setObjectName("danger")
+        delete_btn.clicked.connect(self.delete_selected_attendance)
+        btns = QHBoxLayout()
+        btns.addWidget(refresh)
+        btns.addWidget(edit_btn)
+        btns.addWidget(delete_btn)
+        v.addLayout(btns)
         self.load_attendance()
         return w
 
@@ -1046,6 +1142,35 @@ class MainWindow(QMainWindow):
             self.att_table.setItem(r,2,QTableWidgetItem(str(tid)))
             self.att_table.setItem(r,3,QTableWidgetItem("Sim" if pres else "Não"))
             self.att_table.setItem(r,4,QTableWidgetItem(notes or ""))
+
+    def edit_selected_attendance(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível editar presenças.")
+            return
+        attendance_id = self._get_selected_id(self.att_table, "presença")
+        if attendance_id is None:
+            return
+        dlg = AttendanceEditDialog(attendance_id, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.load_attendance()
+
+    def delete_selected_attendance(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível excluir presenças.")
+            return
+        attendance_id = self._get_selected_id(self.att_table, "presença")
+        if attendance_id is None:
+            return
+        ok = QMessageBox.question(self, "Confirmar", f"Remover presença {attendance_id}?")
+        if ok != QMessageBox.Yes:
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM attendance WHERE id=?", (attendance_id,))
+        conn.commit()
+        conn.close()
+        audit('attendance_delete', f'attendance_id={attendance_id}')
+        self.load_attendance()
 
     # --------------------------
     # PÁGINA: AVALIAÇÕES (IDs via ComboBox)
@@ -1174,8 +1299,8 @@ class MainWindow(QMainWindow):
         self.diary_table = QTableWidget(0, 4)
         self.diary_table.setHorizontalHeaderLabels(["ID","Equipe","Título","Criado em"])
         v.addWidget(self.diary_table)
-        self.attach_table = QTableWidget(0, 3)
-        self.attach_table.setHorizontalHeaderLabels(["Entry ID","Arquivo","Nome original"])
+        self.attach_table = QTableWidget(0, 4)
+        self.attach_table.setHorizontalHeaderLabels(["ID","Entry ID","Arquivo","Nome original"])
         v.addWidget(self.attach_table)
         list_btns = QHBoxLayout()
         btn_load_d = QPushButton("Carregar entradas da equipe")
@@ -1184,8 +1309,20 @@ class MainWindow(QMainWindow):
         btn_load_a = QPushButton("Carregar anexos da equipe")
         btn_load_a.setObjectName("primary")
         btn_load_a.clicked.connect(self.load_attachments_by_team)
+        btn_edit_entry = QPushButton("Editar entrada selecionada")
+        btn_edit_entry.setObjectName("primary")
+        btn_edit_entry.clicked.connect(self.edit_selected_diary_entry)
+        btn_delete_entry = QPushButton("Remover entrada selecionada")
+        btn_delete_entry.setObjectName("danger")
+        btn_delete_entry.clicked.connect(self.delete_selected_diary_entry)
+        btn_delete_attach = QPushButton("Remover anexo selecionado")
+        btn_delete_attach.setObjectName("danger")
+        btn_delete_attach.clicked.connect(self.delete_selected_attachment)
         list_btns.addWidget(btn_load_d)
         list_btns.addWidget(btn_load_a)
+        list_btns.addWidget(btn_edit_entry)
+        list_btns.addWidget(btn_delete_entry)
+        list_btns.addWidget(btn_delete_attach)
         v.addLayout(list_btns)
         return w
 
@@ -1256,7 +1393,7 @@ class MainWindow(QMainWindow):
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("""
-            SELECT a.diary_entry_id, a.file_path, a.original_name
+            SELECT a.id, a.diary_entry_id, a.file_path, a.original_name
             FROM attachments a
             JOIN diary_entries d ON d.id = a.diary_entry_id
             WHERE d.team_id=?
@@ -1268,6 +1405,74 @@ class MainWindow(QMainWindow):
         for r,row in enumerate(rows):
             for cidx,val in enumerate(row):
                 self.attach_table.setItem(r,cidx,QTableWidgetItem(str(val)))
+
+    def edit_selected_diary_entry(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível editar o diário.")
+            return
+        entry_id = self._get_selected_id(self.diary_table, "entrada")
+        if entry_id is None:
+            return
+        dlg = DiaryEntryEditDialog(entry_id, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.load_diary_entries()
+            self.load_attachments_by_team()
+
+    def delete_selected_diary_entry(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível excluir o diário.")
+            return
+        entry_id = self._get_selected_id(self.diary_table, "entrada")
+        if entry_id is None:
+            return
+        ok = QMessageBox.question(self, "Confirmar", f"Remover entrada {entry_id} e seus anexos?")
+        if ok != QMessageBox.Yes:
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT file_path FROM attachments WHERE diary_entry_id=?", (entry_id,))
+        attachments = [r[0] for r in c.fetchall()]
+        c.execute("DELETE FROM attachments WHERE diary_entry_id=?", (entry_id,))
+        c.execute("DELETE FROM diary_entries WHERE id=?", (entry_id,))
+        conn.commit()
+        conn.close()
+        for path in attachments:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        audit('diary_entry_delete', f'entry_id={entry_id}')
+        self.load_diary_entries()
+        self.load_attachments_by_team()
+
+    def delete_selected_attachment(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível excluir anexos.")
+            return
+        attachment_id = self._get_selected_id(self.attach_table, "anexo", col=0)
+        if attachment_id is None:
+            return
+        ok = QMessageBox.question(self, "Confirmar", f"Remover anexo {attachment_id}?")
+        if ok != QMessageBox.Yes:
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT id, file_path FROM attachments WHERE id=?", (attachment_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            QMessageBox.warning(self, "Ação", "Anexo não encontrado.")
+            return
+        attach_id, file_path = row
+        c.execute("DELETE FROM attachments WHERE id=?", (attach_id,))
+        conn.commit()
+        conn.close()
+        try:
+            Path(file_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+        audit('attachment_delete', f'attachment_id={attach_id}')
+        self.load_attachments_by_team()
 
     # --------------------------
     # PÁGINA: DASHBOARD
@@ -2292,6 +2497,262 @@ class CandidateDialog(QDialog):
 
         self.load_data()
 
+class TeamEditDialog(QDialog):
+    def __init__(self, team_id: int, parent=None):
+        super().__init__(parent)
+        self.team_id = team_id
+        self.setWindowTitle(f"Editar equipe {team_id}")
+        self.resize(420, 220)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.name_in = QLineEdit()
+        self.comp_in = QComboBox()
+        self.comp_in.addItems(["OBR", "TBR", "CCBB"])
+        self.vet_in = QCheckBox("Veteranos?")
+        form.addRow("Nome:", self.name_in)
+        form.addRow("Competição:", self.comp_in)
+        form.addRow(self.vet_in)
+        layout.addLayout(form)
+
+        save_btn = QPushButton("Salvar")
+        save_btn.setObjectName("primary")
+        save_btn.clicked.connect(self.save_data)
+        layout.addWidget(save_btn)
+        self.load_data()
+
+    def load_data(self):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT name, competition, is_veteran FROM teams WHERE id=?", (self.team_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            QMessageBox.warning(self, "Erro", "Equipe não encontrada.")
+            self.reject()
+            return
+        name, comp, vet = row
+        self.name_in.setText(name or "")
+        if comp:
+            self.comp_in.setCurrentText(comp)
+        self.vet_in.setChecked(bool(vet))
+
+    def save_data(self):
+        name = self.name_in.text().strip()
+        comp = self.comp_in.currentText()
+        vet = 1 if self.vet_in.isChecked() else 0
+        if not name:
+            QMessageBox.warning(self, "Erro", "Nome da equipe é obrigatório.")
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE teams SET name=?, competition=?, is_veteran=? WHERE id=?",
+            (name, comp, vet, self.team_id),
+        )
+        conn.commit()
+        conn.close()
+        audit('team_update', f'team_id={self.team_id}')
+        QMessageBox.information(self, "Sucesso", "Equipe atualizada.")
+        self.accept()
+
+class SessionEditDialog(QDialog):
+    def __init__(self, session_id: int, parent=None):
+        super().__init__(parent)
+        self.session_id = session_id
+        self.setWindowTitle(f"Editar sessão {session_id}")
+        self.resize(420, 200)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.date_in = QLineEdit()
+        self.start_in = QLineEdit()
+        self.end_in = QLineEdit()
+        form.addRow("Data (YYYY-MM-DD):", self.date_in)
+        form.addRow("Início (HH:MM):", self.start_in)
+        form.addRow("Fim (HH:MM):", self.end_in)
+        layout.addLayout(form)
+
+        save_btn = QPushButton("Salvar")
+        save_btn.setObjectName("primary")
+        save_btn.clicked.connect(self.save_data)
+        layout.addWidget(save_btn)
+        self.load_data()
+
+    def load_data(self):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT date, start_time, end_time FROM training_sessions WHERE id=?", (self.session_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            QMessageBox.warning(self, "Erro", "Sessão não encontrada.")
+            self.reject()
+            return
+        date, start, end = row
+        self.date_in.setText(date or "")
+        self.start_in.setText(start or "")
+        self.end_in.setText(end or "")
+
+    def save_data(self):
+        date = self.date_in.text().strip()
+        start = self.start_in.text().strip()
+        end = self.end_in.text().strip()
+        if not date or not start or not end:
+            QMessageBox.warning(self, "Erro", "Data e horários são obrigatórios.")
+            return
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+            datetime.strptime(start, "%H:%M")
+            datetime.strptime(end, "%H:%M")
+        except ValueError:
+            QMessageBox.warning(self, "Erro", "Formato inválido. Use YYYY-MM-DD e HH:MM.")
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE training_sessions SET date=?, start_time=?, end_time=? WHERE id=?",
+            (date, start, end, self.session_id),
+        )
+        conn.commit()
+        conn.close()
+        audit('session_update', f'session_id={self.session_id}')
+        QMessageBox.information(self, "Sucesso", "Sessão atualizada.")
+        self.accept()
+
+class AttendanceEditDialog(QDialog):
+    def __init__(self, attendance_id: int, parent=None):
+        super().__init__(parent)
+        self.attendance_id = attendance_id
+        self.setWindowTitle(f"Editar presença {attendance_id}")
+        self.resize(450, 220)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.session_cb = QComboBox()
+        self.team_cb = QComboBox()
+        for sid, d, s, e in fetch_sessions():
+            self.session_cb.addItem(f"{sid} - {d} ({s}-{e})", sid)
+        for tid, tname in fetch_teams():
+            self.team_cb.addItem(f"{tid} - {tname}", tid)
+        self.present_cb = QComboBox()
+        self.present_cb.addItems(["Sim", "Não"])
+        self.notes_in = QLineEdit()
+        form.addRow("Sessão:", self.session_cb)
+        form.addRow("Equipe:", self.team_cb)
+        form.addRow("Presente?", self.present_cb)
+        form.addRow("Notas:", self.notes_in)
+        layout.addLayout(form)
+
+        save_btn = QPushButton("Salvar")
+        save_btn.setObjectName("primary")
+        save_btn.clicked.connect(self.save_data)
+        layout.addWidget(save_btn)
+        self.load_data()
+
+    def load_data(self):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "SELECT training_session_id, team_id, present, notes FROM attendance WHERE id=?",
+            (self.attendance_id,),
+        )
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            QMessageBox.warning(self, "Erro", "Registro de presença não encontrado.")
+            self.reject()
+            return
+        sid, tid, present, notes = row
+        idx_session = self.session_cb.findData(sid)
+        if idx_session >= 0:
+            self.session_cb.setCurrentIndex(idx_session)
+        idx_team = self.team_cb.findData(tid)
+        if idx_team >= 0:
+            self.team_cb.setCurrentIndex(idx_team)
+        self.present_cb.setCurrentText("Sim" if present else "Não")
+        self.notes_in.setText(notes or "")
+
+    def save_data(self):
+        sid = self.session_cb.currentData()
+        tid = self.team_cb.currentData()
+        present = 1 if self.present_cb.currentText() == "Sim" else 0
+        notes = self.notes_in.text().strip()
+        if sid is None or tid is None:
+            QMessageBox.warning(self, "Erro", "Sessão e equipe são obrigatórias.")
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE attendance SET training_session_id=?, team_id=?, present=?, notes=? WHERE id=?",
+            (sid, tid, present, notes, self.attendance_id),
+        )
+        conn.commit()
+        conn.close()
+        audit('attendance_update', f'attendance_id={self.attendance_id}')
+        QMessageBox.information(self, "Sucesso", "Presença atualizada.")
+        self.accept()
+
+class DiaryEntryEditDialog(QDialog):
+    def __init__(self, entry_id: int, parent=None):
+        super().__init__(parent)
+        self.entry_id = entry_id
+        self.setWindowTitle(f"Editar diário {entry_id}")
+        self.resize(600, 420)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.team_cb = QComboBox()
+        fill_team_combobox(self.team_cb)
+        self.title_in = QLineEdit()
+        self.content_in = QTextEdit()
+        form.addRow("Equipe:", self.team_cb)
+        form.addRow("Título:", self.title_in)
+        form.addRow("Conteúdo:", self.content_in)
+        layout.addLayout(form)
+
+        save_btn = QPushButton("Salvar")
+        save_btn.setObjectName("primary")
+        save_btn.clicked.connect(self.save_data)
+        layout.addWidget(save_btn)
+        self.load_data()
+
+    def load_data(self):
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT team_id, title, content FROM diary_entries WHERE id=?", (self.entry_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            QMessageBox.warning(self, "Erro", "Entrada não encontrada.")
+            self.reject()
+            return
+        team_id, title, content = row
+        idx = self.team_cb.findData(team_id)
+        if idx >= 0:
+            self.team_cb.setCurrentIndex(idx)
+        self.title_in.setText(title or "")
+        self.content_in.setPlainText(content or "")
+
+    def save_data(self):
+        team_id = self.team_cb.currentData()
+        title = self.title_in.text().strip()
+        content = self.content_in.toPlainText().strip()
+        if team_id is None or not title or not content:
+            QMessageBox.warning(self, "Erro", "Equipe, título e conteúdo são obrigatórios.")
+            return
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE diary_entries SET team_id=?, title=?, content=? WHERE id=?",
+            (team_id, title, content, self.entry_id),
+        )
+        conn.commit()
+        conn.close()
+        audit('diary_entry_update', f'entry_id={self.entry_id}')
+        QMessageBox.information(self, "Sucesso", "Entrada atualizada.")
+        self.accept()
+
 class ImportPreviewDialog(QDialog):
     def __init__(self, headers, preview_rows, parent=None):
         super().__init__(parent)
@@ -2480,4 +2941,3 @@ if __name__ == "__main__":
     main()
 
 # Preciso adicionar uma dashboard mais limpa para maior visibilidade dos dados
-
