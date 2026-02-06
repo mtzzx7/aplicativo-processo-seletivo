@@ -3,6 +3,7 @@ import sqlite3
 import shutil
 import atexit
 from pathlib import Path
+from db import DB_PATH, connect_db
 from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QWidget, QMainWindow, QListWidget, QStackedWidget,
@@ -15,7 +16,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from ui.dashboard import Dashboard
 
-DB_PATH = Path("selection.db")
 ATTACH_DIR = Path("attachments")
 ATTACH_DIR.mkdir(exist_ok=True)
 
@@ -44,7 +44,7 @@ class ContributionDialog(QDialog):
         self.load_members()
 
     def load_members(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("""
             SELECT c.id, c.name FROM candidates c
@@ -85,7 +85,7 @@ class ContributionDialog(QDialog):
             note = self.members_table.cellWidget(r, 3).text().strip()
             contributions.append((self.evaluation_id, member_id, weight, note))
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         try:
             c.executemany("""
@@ -106,7 +106,7 @@ class ContributionDialog(QDialog):
 # MIGRAÇÃO DE BANCO (schema v1+)
 # -------------------------------
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db()
     cur = conn.cursor()
     # user_version indica versão do schema
     cur.execute("PRAGMA user_version")
@@ -329,7 +329,7 @@ def now_str():
 
 # Settings helpers and audit
 def get_setting(key, default=None):
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db()
     cur = conn.cursor()
     try:
         cur.execute("SELECT value FROM settings WHERE key=?", (key,))
@@ -339,7 +339,7 @@ def get_setting(key, default=None):
         conn.close()
 
 def set_setting(key, value):
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db()
     cur = conn.cursor()
     try:
         cur.execute("REPLACE INTO settings (key,value) VALUES (?,?)", (key, str(value)))
@@ -363,14 +363,14 @@ def audit(action, details=""):
 
 # --- HELPERS PARA COMBOBOXES (IDs -> labels) ---
 def fetch_teams():
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    conn = connect_db(); c = conn.cursor()
     c.execute("SELECT id, name FROM teams ORDER BY name ASC")
     rows = c.fetchall()
     conn.close()
     return rows
 
 def fetch_sessions():
-    conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+    conn = connect_db(); c = conn.cursor()
     c.execute("SELECT id, date, start_time, end_time FROM training_sessions ORDER BY id DESC")
     rows = c.fetchall()
     conn.close()
@@ -584,7 +584,7 @@ class MainWindow(QMainWindow):
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("INSERT INTO candidates (name,email,notes,cpf,phone,grade) VALUES (?,?,?,?,?,?)", (name, email, notes, cpf, phone, grade))
         conn.commit()
@@ -594,7 +594,7 @@ class MainWindow(QMainWindow):
         self.load_candidates()
 
     def load_candidates(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         q = "SELECT id,name,email,cpf,phone,grade FROM candidates"
         params = ()
@@ -624,7 +624,7 @@ class MainWindow(QMainWindow):
         ok = QMessageBox.question(self, "Confirmar", f"Remover candidato {cid}? Esta ação é irreversível.")
         if ok != QMessageBox.Yes:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("DELETE FROM team_members WHERE candidate_id=?", (cid,))
         c.execute("DELETE FROM candidates WHERE id=?", (cid,))
@@ -679,7 +679,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, 'Importar Excel', 'Importação cancelada')
                 return
             idx_name, idx_email, idx_notes, skip_dup, idx_cpf, idx_phone, idx_grade = dlg.mapping_indices()
-            conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+            conn = connect_db(); c = conn.cursor()
             for r in data_rows:
                 if all(val is None or str(val).strip() == '' for val in r):
                     skipped += 1
@@ -740,7 +740,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, 'Importar CSV', 'Importação cancelada')
                 return
             idx_name, idx_email, idx_notes, skip_dup, idx_cpf, idx_phone, idx_grade = dlg.mapping_indices()
-            conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+            conn = connect_db(); c = conn.cursor()
             for r in rows:
                 if '__raw__' in r:
                     raw = r['__raw__']
@@ -793,7 +793,7 @@ class MainWindow(QMainWindow):
         self.auto_assign_by_size(size)
 
     def auto_assign_by_size(self, size:int):
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         c.execute("SELECT id FROM candidates WHERE id NOT IN (SELECT candidate_id FROM team_members)")
         unassigned = [r[0] for r in c.fetchall()]
         if not unassigned:
@@ -870,7 +870,7 @@ class MainWindow(QMainWindow):
         if not name:
             QMessageBox.warning(self, "Erro", "Nome da equipe é obrigatório")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("INSERT INTO teams (name, competition, is_veteran) VALUES (?,?,?)", (name, comp, vet))
         conn.commit()
@@ -887,7 +887,7 @@ class MainWindow(QMainWindow):
             pass
 
     def load_teams(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("SELECT id,name,competition,is_veteran FROM teams ORDER BY id DESC")
         rows = cur.fetchall()
@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
         ok = QMessageBox.question(self, "Confirmar", f"Remover equipe {tid}? Membros serão desvinculados.")
         if ok != QMessageBox.Yes:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("DELETE FROM team_members WHERE team_id=?", (tid,))
         c.execute("DELETE FROM teams WHERE id=?", (tid,))
@@ -1005,7 +1005,7 @@ class MainWindow(QMainWindow):
         return w
 
     def create_session(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("INSERT INTO training_sessions (date,start_time,end_time) VALUES (?,?,?)",
                   (self.s_date.text().strip(), self.s_start.text().strip(), self.s_end.text().strip()))
@@ -1019,7 +1019,7 @@ class MainWindow(QMainWindow):
             pass
 
     def load_sessions(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT id,date,start_time,end_time FROM training_sessions ORDER BY id DESC")
         rows = c.fetchall()
@@ -1059,7 +1059,7 @@ class MainWindow(QMainWindow):
         )
         if ok != QMessageBox.Yes:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("DELETE FROM training_sessions WHERE id=?", (session_id,))
         conn.commit()
@@ -1120,7 +1120,7 @@ class MainWindow(QMainWindow):
             return
         pres = 1 if self.a_present.currentText() == "Sim" else 0
         notes = self.a_notes.text().strip()
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("INSERT INTO attendance (training_session_id,team_id,present,notes) VALUES (?,?,?,?)",
                   (sid, tid, pres, notes))
@@ -1129,7 +1129,7 @@ class MainWindow(QMainWindow):
         self.load_attendance()
 
     def load_attendance(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT id,training_session_id,team_id,present,notes FROM attendance ORDER BY id DESC")
         rows = c.fetchall()
@@ -1164,7 +1164,7 @@ class MainWindow(QMainWindow):
         ok = QMessageBox.question(self, "Confirmar", f"Remover presença {attendance_id}?")
         if ok != QMessageBox.Yes:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("DELETE FROM attendance WHERE id=?", (attendance_id,))
         conn.commit()
@@ -1224,7 +1224,7 @@ class MainWindow(QMainWindow):
         pres = int(self.eval_pres_sb.value())
         comment = self.eval_comment.toPlainText().strip() or None
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         # Verificar avaliação duplicada para a mesma equipe na mesma sessão
         cur.execute("""
@@ -1259,7 +1259,7 @@ class MainWindow(QMainWindow):
         self.load_recent_evaluations()
 
     def load_recent_evaluations(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("SELECT id,team_id,training_session_id,judge,immersion,development,presentation FROM evaluations WHERE is_active = 1 ORDER BY id DESC LIMIT 50")
         rows = cur.fetchall()
@@ -1336,7 +1336,7 @@ class MainWindow(QMainWindow):
         if not title or not content:
             QMessageBox.warning(self, "Erro", "Título e conteúdo são obrigatórios")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("INSERT INTO diary_entries (team_id,title,content,created_at) VALUES (?,?,?,?)",
                   (team_id, title, content, now_str()))
@@ -1364,7 +1364,7 @@ class MainWindow(QMainWindow):
             return
         dst = ATTACH_DIR / f"{entry_id}_{src.name}"
         shutil.copy2(src, dst)
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("INSERT INTO attachments (diary_entry_id,file_path,original_name,mime_type) VALUES (?,?,?,?)",
                   (entry_id, str(dst), src.name, ""))
@@ -1376,7 +1376,7 @@ class MainWindow(QMainWindow):
         team_id = self.d_team_cb.currentData()
         if team_id is None:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT id,team_id,title,created_at FROM diary_entries WHERE team_id=? ORDER BY id DESC", (team_id,))
         rows = c.fetchall()
@@ -1390,7 +1390,7 @@ class MainWindow(QMainWindow):
         team_id = self.d_team_cb.currentData()
         if team_id is None:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("""
             SELECT a.id, a.diary_entry_id, a.file_path, a.original_name
@@ -1428,7 +1428,7 @@ class MainWindow(QMainWindow):
         ok = QMessageBox.question(self, "Confirmar", f"Remover entrada {entry_id} e seus anexos?")
         if ok != QMessageBox.Yes:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT file_path FROM attachments WHERE diary_entry_id=?", (entry_id,))
         attachments = [r[0] for r in c.fetchall()]
@@ -1455,7 +1455,7 @@ class MainWindow(QMainWindow):
         ok = QMessageBox.question(self, "Confirmar", f"Remover anexo {attachment_id}?")
         if ok != QMessageBox.Yes:
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT id, file_path FROM attachments WHERE id=?", (attachment_id,))
         row = c.fetchone()
@@ -1637,7 +1637,7 @@ class MainWindow(QMainWindow):
         return w
 
     def load_weights_into_form(self):
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         def get(name, default):
             c.execute("SELECT weight FROM internal_weights WHERE name=?", (name,))
             r = c.fetchone()
@@ -1655,7 +1655,7 @@ class MainWindow(QMainWindow):
         except Exception:
             QMessageBox.warning(self, "Erro", "Pesos devem ser números (float)")
             return
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         for name, w in [('immersion', wimm), ('development', wdev), ('presentation', wpres)]:
             c.execute("INSERT INTO internal_weights(name,weight) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET weight=excluded.weight", (name, w))
         conn.commit(); conn.close()
@@ -1678,7 +1678,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Sucesso", f"Estado do processo seletivo alterado para: {selected_status}")
 
     def load_admin_evaluations(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("""
             SELECT id,team_id,training_session_id,judge,immersion,development,presentation,hidden_score,IFNULL(comment,''),
@@ -1783,7 +1783,7 @@ class MainWindow(QMainWindow):
         if eval_id is None:
             return
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT is_active, IFNULL(delete_reason, '') FROM evaluations WHERE id=?", (eval_id,))
         res = c.fetchone()
@@ -1807,7 +1807,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Cancelado", "A desativação foi cancelada (motivo não fornecido).")
                 return
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         if is_currently_active:
             c.execute(
@@ -1854,7 +1854,7 @@ class MainWindow(QMainWindow):
             return
 
         final_reason = f"[DELETED] {reason}"
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute(
             "UPDATE evaluations SET is_active=0, deleted_at=?, delete_reason=? WHERE id=?",
@@ -1900,7 +1900,7 @@ class MainWindow(QMainWindow):
 
     def calculate_hidden_scores(self):
         # Score oculto ponderado pelos pesos internos
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         weights = {}
         for name in ('immersion','development','presentation'):
             c.execute("SELECT weight FROM internal_weights WHERE name=?", (name,))
@@ -1933,7 +1933,7 @@ class MainWindow(QMainWindow):
             if ok:
                 reason, ok2 = QInputDialog.getText(self, "Justificativa", "Motivo da edição manual:")
                 if ok2 and reason.strip():
-                    conn = sqlite3.connect(DB_PATH)
+                    conn = connect_db()
                     c = conn.cursor()
                     c.execute("UPDATE evaluations SET hidden_score=? WHERE id=?", (val, eval_id))
                     conn.commit(); conn.close()
@@ -1948,7 +1948,7 @@ class MainWindow(QMainWindow):
         APPROVED_COUNT = 5
         WAITLIST_COUNT = 5
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
 
         try:
@@ -2053,7 +2053,7 @@ class MainWindow(QMainWindow):
         APPROVED_COUNT = 5 # Definido no README como exemplo
         WAITLIST_COUNT = 5 # Definido no README como exemplo
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
 
         try:
@@ -2156,7 +2156,7 @@ class MainWindow(QMainWindow):
 
     # Resumo por equipe (ranking interno com penalidade opcional)
     def recalc_team_summary(self):
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         c.execute("""
             SELECT t.id, t.name, COALESCE(AVG(e.hidden_score), 0.0) AS avg_hidden
             FROM teams t
@@ -2189,7 +2189,7 @@ class MainWindow(QMainWindow):
             self.summary_table.setItem(r, 4, QTableWidgetItem(f"{final:.3f}"))
 
     def recalc_individual_summary(self):
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         
         # 1. Obter score de cada avaliação
         c.execute("SELECT id, hidden_score FROM evaluations WHERE is_active = 1")
@@ -2243,7 +2243,7 @@ class MainWindow(QMainWindow):
         audit('recalc_individual_summary', f'Calculated for {len(summary_data)} members')
 
     def save_contributions(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         try:
             # Check for existing contributions and update if found, otherwise insert
@@ -2296,7 +2296,7 @@ class EditEvaluationDialog(QDialog):
         self.load_evaluation_data()
 
     def load_evaluation_data(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT immersion, development, presentation FROM evaluations WHERE id=?", (self.evaluation_id,))
         data = c.fetchone()
@@ -2316,7 +2316,7 @@ class EditEvaluationDialog(QDialog):
         new_dev = self.eval_dev_sb.value()
         new_pres = self.eval_pres_sb.value()
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         # Log before changing
         c.execute("SELECT immersion, development, presentation FROM evaluations WHERE id=?", (self.evaluation_id,))
@@ -2400,7 +2400,7 @@ class CandidateDialog(QDialog):
         self.load_data()
 
     def load_data(self):
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        conn = connect_db(); c = conn.cursor()
         c.execute("SELECT name,email,notes,cpf,phone,grade FROM candidates WHERE id=?", (self.cid,))
         r = c.fetchone()
         if r:
@@ -2434,7 +2434,7 @@ class CandidateDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("""
             UPDATE candidates SET
@@ -2458,7 +2458,7 @@ class CandidateDialog(QDialog):
             QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
             return
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         try:
             c.execute("DELETE FROM team_members WHERE team_id=? AND candidate_id=?", (team_id, self.cid))
@@ -2482,7 +2482,7 @@ class CandidateDialog(QDialog):
             QMessageBox.warning(self, "Erro", "Não foi possível ler o ID da equipe.")
             return
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         try:
             c.execute("INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)", (team_id, self.cid))
@@ -2522,7 +2522,7 @@ class TeamEditDialog(QDialog):
         self.load_data()
 
     def load_data(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT name, competition, is_veteran FROM teams WHERE id=?", (self.team_id,))
         row = c.fetchone()
@@ -2544,7 +2544,7 @@ class TeamEditDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Erro", "Nome da equipe é obrigatório.")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute(
             "UPDATE teams SET name=?, competition=?, is_veteran=? WHERE id=?",
@@ -2580,7 +2580,7 @@ class SessionEditDialog(QDialog):
         self.load_data()
 
     def load_data(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT date, start_time, end_time FROM training_sessions WHERE id=?", (self.session_id,))
         row = c.fetchone()
@@ -2608,7 +2608,7 @@ class SessionEditDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Erro", "Formato inválido. Use YYYY-MM-DD e HH:MM.")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute(
             "UPDATE training_sessions SET date=?, start_time=?, end_time=? WHERE id=?",
@@ -2651,7 +2651,7 @@ class AttendanceEditDialog(QDialog):
         self.load_data()
 
     def load_data(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute(
             "SELECT training_session_id, team_id, present, notes FROM attendance WHERE id=?",
@@ -2681,7 +2681,7 @@ class AttendanceEditDialog(QDialog):
         if sid is None or tid is None:
             QMessageBox.warning(self, "Erro", "Sessão e equipe são obrigatórias.")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute(
             "UPDATE attendance SET training_session_id=?, team_id=?, present=?, notes=? WHERE id=?",
@@ -2718,7 +2718,7 @@ class DiaryEntryEditDialog(QDialog):
         self.load_data()
 
     def load_data(self):
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT team_id, title, content FROM diary_entries WHERE id=?", (self.entry_id,))
         row = c.fetchone()
@@ -2741,7 +2741,7 @@ class DiaryEntryEditDialog(QDialog):
         if team_id is None or not title or not content:
             QMessageBox.warning(self, "Erro", "Equipe, título e conteúdo são obrigatórios.")
             return
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute(
             "UPDATE diary_entries SET team_id=?, title=?, content=? WHERE id=?",
@@ -2812,7 +2812,7 @@ class TeamMemberDialog(QDialog):
     def __init__(self, team_id: int, parent=None):
         super().__init__(parent)
         self.team_id = team_id
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         c.execute("SELECT name FROM teams WHERE id=?", (self.team_id,))
         r = c.fetchone()
@@ -2852,7 +2852,7 @@ class TeamMemberDialog(QDialog):
     def load_data(self):
         self.members_list.clear()
         self.candidates_list.clear()
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
 
         # Carregar membros da equipe
@@ -2886,7 +2886,7 @@ class TeamMemberDialog(QDialog):
             return
         candidate_id = selected_item.data(Qt.UserRole)
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         try:
             c.execute("DELETE FROM team_members WHERE team_id=? AND candidate_id=?", (self.team_id, candidate_id))
@@ -2905,7 +2905,7 @@ class TeamMemberDialog(QDialog):
             return
         candidate_id = selected_item.data(Qt.UserRole)
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db()
         c = conn.cursor()
         try:
             c.execute("INSERT INTO team_members (team_id, candidate_id) VALUES (?, ?)", (self.team_id, candidate_id))

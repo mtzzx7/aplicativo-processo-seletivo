@@ -1,7 +1,7 @@
-import sqlite3
+from db import connect_db
 
 def get_connection():
-    return sqlite3.connect("selection.db")
+    return connect_db()
 
 def get_dashboard_cards():
     conn = get_connection()
@@ -11,7 +11,8 @@ def get_dashboard_cards():
     cards["inscritos"] = cur.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
     cards["equipes"] = cur.execute("SELECT COUNT(*) FROM teams").fetchone()[0]
     cards["avaliacoes"] = cur.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0]
-    cards["status"] = cur.execute("SELECT value FROM settings WHERE key='process_status'").fetchone()[0]
+    status_row = cur.execute("SELECT value FROM settings WHERE key='process_status'").fetchone()
+    cards["status"] = status_row[0] if status_row else "ABERTO"
 
     conn.close()
     return cards
