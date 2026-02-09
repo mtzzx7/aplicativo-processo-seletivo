@@ -91,3 +91,15 @@
 [2026-01-30 18:09:13] backup -> startup_backup_selection_20260130_180913.db
 [2026-01-30 18:26:44] backup -> shutdown_backup_selection_20260130_182644.db
 [2026-01-30 18:38:28] backup -> startup_backup_selection_20260130_183828.db
+[2026-02-06 12:37:23] backup -> startup_backup_selection_20260206_123723.db
+[2026-02-06 12:37:47] backup -> shutdown_backup_selection_20260206_123747.db
+[2026-02-06 12:38:15] backup -> startup_backup_selection_20260206_123815.db
+[2026-02-06 12:38:55] backup -> shutdown_backup_selection_20260206_123855.db
+[2026-02-06 12:41:05] backup -> startup_backup_selection_20260206_124105.db
+[2026-02-06 12:41:17] backup -> shutdown_backup_selection_20260206_124117.db
+[2026-02-06 12:42:06] backup -> startup_backup_selection_20260206_124206.db
+[2026-02-06 12:42:08] backup -> shutdown_backup_selection_20260206_124208.db
+[2026-02-06 12:42:25] backup -> startup_backup_selection_20260206_124225.db
+[2026-02-06 12:42:28] backup -> shutdown_backup_selection_20260206_124228.db
+[2026-02-06 12:42:37] backup -> startup_backup_selection_20260206_124237.db
+[2026-02-06 14:57:55] backup -> shutdown_backup_selection_20260206_145755.db
