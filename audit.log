@@ -54,3 +54,12 @@
 [2026-01-14 15:25:45] recalc_individual_summary Calculated for 8 members
 [2026-01-14 15:25:55] export_ranking file=ranking_interno_20260114.csv, members=8
 [2026-01-14 15:32:07] import_xlsx file=Robótica- Alunos(PlanilhaOficial).xlsx, inserted=30, skipped=1
+[2026-03-01 01:18:29] import_xlsx file=PROCESSO SELETIVO 2026 _ ROBOT ONE(1-55).xlsx, inserted=51, skipped=4
+[2026-03-01 01:20:05] auto_assign size=5,assigned=50
+[2026-03-01 01:23:41] member_contribution_save evaluation_id=1, count=5
+[2026-03-01 01:25:02] calculate_hidden_scores recalculated using internal weights for active evaluations
+[2026-03-01 01:25:05] save_internal_weights immersion=0.3,development=0.4,presentation=0.5
+[2026-03-01 01:25:06] calculate_hidden_scores recalculated using internal weights for active evaluations
+[2026-03-01 01:25:13] recalc_individual_summary Calculated for 5 members
+[2026-03-01 01:25:21] export_final_result file=resultado_final_oficial_20260301.csv, members=5
+[2026-03-01 01:27:46] process_status_change status=ENCERRADO
