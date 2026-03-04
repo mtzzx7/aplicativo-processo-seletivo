@@ -287,6 +287,29 @@ def init_db():
             pass
         cur.execute("PRAGMA user_version = 9")
 
+    # v9 -> v10: Add area column and remove AUTOINCREMENT from candidates
+    if ver < 10:
+        try:
+            # Create new table without AUTOINCREMENT, with only name and area
+            cur.execute("""
+                CREATE TABLE candidates_new (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    area TEXT
+                )
+            """)
+            # Copy existing data (only name and area columns)
+            cur.execute("""
+                INSERT INTO candidates_new (id, name)
+                SELECT id, name FROM candidates
+            """)
+            # Drop old table and rename new one
+            cur.execute("DROP TABLE candidates")
+            cur.execute("ALTER TABLE candidates_new RENAME TO candidates")
+        except sqlite3.OperationalError as e:
+            print(f"Migration v9->v10 error: {e}")
+        cur.execute("PRAGMA user_version = 10")
+
     conn.commit()
     conn.close()
 
@@ -518,25 +541,17 @@ class MainWindow(QMainWindow):
 
         form = QFormLayout()
         self.name_in = QLineEdit()
-        self.email_in = QLineEdit()
-        self.cpf_in = QLineEdit()
-        self.phone_in = QLineEdit()
-        self.grade_in = QLineEdit()
-        self.notes_in = QTextEdit()
-        form.addRow("Nome:", self.name_in)
-        form.addRow("E-mail:", self.email_in)
-        form.addRow("CPF:", self.cpf_in)
-        form.addRow("Telefone:", self.phone_in)
-        form.addRow("Série:", self.grade_in)
-        form.addRow("Observações:", self.notes_in)
+        self.area_in = QLineEdit()
+        form.addRow("Nome Completo:", self.name_in)
+        form.addRow("Área:", self.area_in)
         add_btn = QPushButton("Adicionar candidato")
         add_btn.setObjectName("primary")
         add_btn.clicked.connect(self.add_candidate)
         layout.addLayout(form)
         layout.addWidget(add_btn)
 
-        self.cand_table = QTableWidget(0, 6)
-        self.cand_table.setHorizontalHeaderLabels(["ID", "Nome", "E-mail", "CPF", "Telefone", "Série"])
+        self.cand_table = QTableWidget(0, 3)
+        self.cand_table.setHorizontalHeaderLabels(["ID", "Nome", "Área"])
         self.cand_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cand_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.cand_table.setSortingEnabled(True)
@@ -546,7 +561,7 @@ class MainWindow(QMainWindow):
         # busca
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar por nome ou e-mail")
+        self.search_input.setPlaceholderText("Buscar por nome ou área")
         self.search_input.textChanged.connect(self.load_candidates)
         search_row.addWidget(QLabel("Buscar:"))
         search_row.addWidget(self.search_input)
@@ -576,33 +591,32 @@ class MainWindow(QMainWindow):
 
     def add_candidate(self):
         name = self.name_in.text().strip()
-        email = self.email_in.text().strip()
-        cpf = self.cpf_in.text().strip()
-        phone = self.phone_in.text().strip()
-        grade = self.grade_in.text().strip()
-        notes = self.notes_in.toPlainText().strip()
+        area = self.area_in.text().strip()
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
             return
+        if not area:
+            QMessageBox.warning(self, "Erro", "Área é obrigatória")
+            return
         conn = connect_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO candidates (name,email,notes,cpf,phone,grade) VALUES (?,?,?,?,?,?)", (name, email, notes, cpf, phone, grade))
+        cur.execute("INSERT INTO candidates (name,area) VALUES (?,?)", (name, area))
         conn.commit()
         conn.close()
-        self.name_in.clear(); self.email_in.clear(); self.notes_in.clear()
-        self.cpf_in.clear(); self.phone_in.clear(); self.grade_in.clear()
+        self.name_in.clear()
+        self.area_in.clear()
         self.load_candidates()
 
     def load_candidates(self):
         conn = connect_db()
         cur = conn.cursor()
-        q = "SELECT id,name,email,cpf,phone,grade FROM candidates"
+        q = "SELECT id,name,area FROM candidates"
         params = ()
         term = getattr(self, 'search_input', None)
         if term and term.text().strip():
             s = '%' + term.text().strip() + '%'
-            q += " WHERE name LIKE ? OR email LIKE ? OR cpf LIKE ? OR phone LIKE ? OR grade LIKE ?"
-            params = (s, s, s, s, s)
+            q += " WHERE name LIKE ? OR area LIKE ?"
+            params = (s, s)
         q += " ORDER BY id DESC"
         cur.execute(q, params)
         rows = cur.fetchall()
@@ -678,7 +692,7 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.Accepted:
                 QMessageBox.information(self, 'Importar Excel', 'Importação cancelada')
                 return
-            idx_name, idx_email, idx_notes, skip_dup, idx_cpf, idx_phone, idx_grade = dlg.mapping_indices()
+            idx_id, idx_name, idx_area = dlg.mapping_indices()
             conn = connect_db(); c = conn.cursor()
             for r in data_rows:
                 if all(val is None or str(val).strip() == '' for val in r):
@@ -690,22 +704,18 @@ class MainWindow(QMainWindow):
                         return str(v).strip() if v is not None else ''
                     except Exception:
                         return ''
+                id_val = get_idx(r, idx_id)
                 name = get_idx(r, idx_name)
-                email = get_idx(r, idx_email)
-                notes = get_idx(r, idx_notes)
-                cpf = get_idx(r, idx_cpf)
-                phone = get_idx(r, idx_phone)
-                grade = get_idx(r, idx_grade)
+                area = get_idx(r, idx_area)
                 if not name.strip():
                     skipped += 1; continue
-                if skip_dup:
-                    c.execute("SELECT id FROM candidates WHERE name=? AND (email=? OR ?='')", (name, email, email))
-                    if c.fetchone():
-                        skipped += 1; continue
+                if not id_val.strip():
+                    skipped += 1; continue
                 try:
-                    c.execute("INSERT INTO candidates (name,email,notes,cpf,phone,grade) VALUES (?,?,?,?,?,?)", (name, email, notes, cpf, phone, grade))
+                    candidate_id = int(id_val)
+                    c.execute("INSERT INTO candidates (id,name,area) VALUES (?,?,?)", (candidate_id, name, area))
                     inserted += 1
-                except Exception:
+                except Exception as e:
                     skipped += 1
             conn.commit(); conn.close()
             self.load_candidates()
@@ -739,7 +749,7 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.Accepted:
                 QMessageBox.information(self, 'Importar CSV', 'Importação cancelada')
                 return
-            idx_name, idx_email, idx_notes, skip_dup, idx_cpf, idx_phone, idx_grade = dlg.mapping_indices()
+            idx_id, idx_name, idx_area = dlg.mapping_indices()
             conn = connect_db(); c = conn.cursor()
             for r in rows:
                 if '__raw__' in r:
@@ -747,12 +757,9 @@ class MainWindow(QMainWindow):
                     if all(val.strip() == '' for val in raw):
                         skipped += 1
                         continue
+                    id_val = raw[idx_id].strip() if len(raw) > idx_id else ''
                     name = raw[idx_name].strip() if len(raw) > idx_name else ''
-                    email = raw[idx_email].strip() if len(raw) > idx_email else ''
-                    notes = raw[idx_notes].strip() if len(raw) > idx_notes else ''
-                    cpf = raw[idx_cpf].strip() if len(raw) > idx_cpf else ''
-                    phone = raw[idx_phone].strip() if len(raw) > idx_phone else ''
-                    grade = raw[idx_grade].strip() if len(raw) > idx_grade else ''
+                    area = raw[idx_area].strip() if len(raw) > idx_area else ''
                 else:
                     if all(val.strip() == '' for val in r.values()):
                         skipped += 1
@@ -763,20 +770,16 @@ class MainWindow(QMainWindow):
                             return str(d.get(key,'')).strip()
                         except Exception:
                             return ''
+                    id_val = get_by_index(r, idx_id)
                     name = get_by_index(r, idx_name)
-                    email = get_by_index(r, idx_email)
-                    notes = get_by_index(r, idx_notes)
-                    cpf = get_by_index(r, idx_cpf)
-                    phone = get_by_index(r, idx_phone)
-                    grade = get_by_index(r, idx_grade)
+                    area = get_by_index(r, idx_area)
                 if not name.strip():
                     skipped += 1; continue
-                if skip_dup:
-                    c.execute("SELECT id FROM candidates WHERE name=? AND (email=? OR ?='')", (name, email, email))
-                    if c.fetchone():
-                        skipped += 1; continue
+                if not id_val.strip():
+                    skipped += 1; continue
                 try:
-                    c.execute("INSERT INTO candidates (name,email,notes,cpf,phone,grade) VALUES (?,?,?,?,?,?)", (name, email, notes, cpf, phone, grade))
+                    candidate_id = int(id_val)
+                    c.execute("INSERT INTO candidates (id,name,area) VALUES (?,?,?)", (candidate_id, name, area))
                     inserted += 1
                 except Exception:
                     skipped += 1
@@ -785,12 +788,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, 'Importar CSV', f'Concluída: {inserted} inseridos, {skipped} ignorados')
             audit('import_csv', f'file={Path(fn).name}, inserted={inserted}, skipped={skipped}')
 
-    # AUTO-ATRIBUIÇÃO (round-robin por tamanho)
+    # AUTO-ATRIBUIÇÃO
     def auto_assign_dialog(self):
-        size, ok = QInputDialog.getInt(self, 'Auto-atribuir', 'Tamanho por equipe (ex: 3):', 3, 1, 100)
-        if not ok:
-            return
-        self.auto_assign_by_size(size)
+        dlg = AdvancedAutoAssignDialog(parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            config = dlg.get_config()
+            self.auto_assign_by_area(config)
 
     def auto_assign_by_size(self, size:int):
         conn = connect_db(); c = conn.cursor()
@@ -817,6 +820,80 @@ class MainWindow(QMainWindow):
         self.load_teams(); self.load_candidates()
         QMessageBox.information(self, 'Auto-atribuir', f'Atribuídos {len(unassigned)} candidatos em {len(team_ids)} equipes')
         audit('auto_assign', f'size={size},assigned={len(unassigned)}')
+
+    def auto_assign_by_area(self, config):
+        """Auto-assign candidates by area configuration"""
+        conn = connect_db(); c = conn.cursor()
+
+        # Get unassigned candidates
+        c.execute("SELECT id, area FROM candidates WHERE id NOT IN (SELECT candidate_id FROM team_members)")
+        unassigned = c.fetchall()
+
+        if not unassigned:
+            QMessageBox.information(self, 'Auto-atribuir', 'Nenhum candidato sem equipe')
+            conn.close()
+            return
+
+        # Group candidates by area
+        candidates_by_area = {}
+        for cid, area in unassigned:
+            if area not in candidates_by_area:
+                candidates_by_area[area] = []
+            candidates_by_area[area].append(cid)
+
+        # Get or create teams
+        area_config = config['areas']
+        total_teams = config['num_teams']
+
+        c.execute("SELECT COUNT(*) FROM teams")
+        existing_teams = c.fetchone()[0]
+
+        if total_teams > existing_teams:
+            for i in range(total_teams - existing_teams):
+                name = f"AutoTeam_{now_str()}_{i}"
+                c.execute("INSERT INTO teams(name,competition,is_veteran) VALUES(?,?,?)", (name, 'OBR', 0))
+
+        c.execute("SELECT id FROM teams ORDER BY id ASC LIMIT ?", (total_teams,))
+        team_ids = [r[0] for r in c.fetchall()]
+
+        # Distribute candidates to teams
+        team_capacity = {tid: {} for tid in team_ids}
+        for tid in team_ids:
+            for area in area_config:
+                team_capacity[tid][area] = 0
+
+        # Assign candidates round-robin by area
+        for area, candidates in candidates_by_area.items():
+            if area not in area_config:
+                continue
+
+            max_per_team = area_config[area]
+            team_idx = 0
+
+            for cid in candidates:
+                # Try to find a team with space for this area
+                assigned = False
+                for _ in range(len(team_ids)):
+                    tid = team_ids[team_idx % len(team_ids)]
+                    if team_capacity[tid][area] < max_per_team:
+                        c.execute("INSERT OR IGNORE INTO team_members(team_id,candidate_id) VALUES(?,?)", (tid, cid))
+                        team_capacity[tid][area] += 1
+                        assigned = True
+                        team_idx += 1
+                        break
+                    team_idx += 1
+
+                if not assigned:
+                    # Skip if no space available in any team for this area
+                    pass
+
+        conn.commit()
+        conn.close()
+        self.load_teams()
+        self.load_candidates()
+        assigned_count = sum(len(candidates) for candidates in candidates_by_area.values())
+        QMessageBox.information(self, 'Auto-atribuir', f'Atribuídos {assigned_count} candidatos em {total_teams} equipes')
+        audit('auto_assign_by_area', f'teams={total_teams},assigned={assigned_count}')
 
     # --------------------------
     # PÁGINA: EQUIPES
@@ -2353,24 +2430,16 @@ class CandidateDialog(QDialog):
         super().__init__(parent)
         self.cid = candidate_id
         self.setWindowTitle(f"Candidato {candidate_id}")
-        self.resize(640,550)
+        self.resize(640,400)
 
         layout = QVBoxLayout(self)
 
         # Formulário de edição
         form = QFormLayout()
         self.name_in = QLineEdit()
-        self.email_in = QLineEdit()
-        self.cpf_in = QLineEdit()
-        self.phone_in = QLineEdit()
-        self.grade_in = QLineEdit()
-        self.notes_in = QTextEdit()
+        self.area_in = QLineEdit()
         form.addRow("Nome:", self.name_in)
-        form.addRow("E-mail:", self.email_in)
-        form.addRow("CPF:", self.cpf_in)
-        form.addRow("Telefone:", self.phone_in)
-        form.addRow("Série:", self.grade_in)
-        form.addRow("Observações:", self.notes_in)
+        form.addRow("Área:", self.area_in)
         layout.addLayout(form)
 
         save_btn = QPushButton("Salvar Alterações")
@@ -2406,15 +2475,11 @@ class CandidateDialog(QDialog):
 
     def load_data(self):
         conn = connect_db(); c = conn.cursor()
-        c.execute("SELECT name,email,notes,cpf,phone,grade FROM candidates WHERE id=?", (self.cid,))
+        c.execute("SELECT name,area FROM candidates WHERE id=?", (self.cid,))
         r = c.fetchone()
         if r:
             self.name_in.setText(r[0] or "")
-            self.email_in.setText(r[1] or "")
-            self.notes_in.setPlainText(r[2] or "")
-            self.cpf_in.setText(r[3] or "")
-            self.phone_in.setText(r[4] or "")
-            self.grade_in.setText(r[5] or "")
+            self.area_in.setText(r[1] or "")
 
         c.execute("SELECT t.id,t.name FROM teams t JOIN team_members m ON t.id=m.team_id WHERE m.candidate_id=?", (self.cid,))
         mems = c.fetchall()
@@ -2431,21 +2496,20 @@ class CandidateDialog(QDialog):
 
     def save_data(self):
         name = self.name_in.text().strip()
-        email = self.email_in.text().strip()
-        notes = self.notes_in.toPlainText().strip()
-        cpf = self.cpf_in.text().strip()
-        phone = self.phone_in.text().strip()
-        grade = self.grade_in.text().strip()
+        area = self.area_in.text().strip()
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
+            return
+        if not area:
+            QMessageBox.warning(self, "Erro", "Área é obrigatória")
             return
         conn = connect_db()
         c = conn.cursor()
         c.execute("""
             UPDATE candidates SET
-            name=?, email=?, notes=?, cpf=?, phone=?, grade=?
+            name=?, area=?
             WHERE id=?
-        """, (name, email, notes, cpf, phone, grade, self.cid))
+        """, (name, area, self.cid))
         conn.commit()
         conn.close()
         QMessageBox.information(self, "Sucesso", "Candidato atualizado.")
@@ -2758,13 +2822,85 @@ class DiaryEntryEditDialog(QDialog):
         QMessageBox.information(self, "Sucesso", "Entrada atualizada.")
         self.accept()
 
+class AdvancedAutoAssignDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Auto-atribuição Avançada')
+        self.resize(650, 500)
+
+        layout = QVBoxLayout(self)
+
+        # Section 1: Select areas and quantity
+        layout.addWidget(QLabel("1. Selecione as áreas e quantidade por equipe:"))
+
+        # Get available areas
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT area FROM candidates WHERE area IS NOT NULL AND area != '' ORDER BY area")
+        areas = [r[0] for r in c.fetchall()]
+        conn.close()
+
+        self.area_spinboxes = {}
+        area_form = QFormLayout()
+
+        if areas:
+            for area in areas:
+                spinbox = QSpinBox()
+                spinbox.setRange(0, 10)
+                spinbox.setValue(1)
+                self.area_spinboxes[area] = spinbox
+                area_form.addRow(f"{area}:", spinbox)
+        else:
+            area_form.addRow(QLabel("Nenhuma área encontrada"))
+
+        layout.addLayout(area_form)
+
+        # Section 2: Number of teams
+        layout.addWidget(QLabel("2. Quantas equipes deseja criar/usar:"))
+        team_form = QFormLayout()
+        self.num_teams_spinbox = QSpinBox()
+        self.num_teams_spinbox.setRange(1, 50)
+        self.num_teams_spinbox.setValue(3)
+        team_form.addRow("Número de equipes:", self.num_teams_spinbox)
+        layout.addLayout(team_form)
+
+        # Section 3: Info
+        layout.addWidget(QLabel("Exemplo: Se escolher 2 pessoas de Pesquisa, cada equipe terá 2 pessoas dessa área."))
+
+        layout.addStretch()
+
+        # Buttons
+        btns = QHBoxLayout()
+        ok_btn = QPushButton('Confirmar')
+        ok_btn.setObjectName('primary')
+        cancel_btn = QPushButton('Cancelar')
+        cancel_btn.setObjectName('danger')
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        btns.addWidget(ok_btn)
+        btns.addWidget(cancel_btn)
+        layout.addLayout(btns)
+
+    def get_config(self):
+        """Return the configuration selected by user"""
+        areas = {}
+        for area, spinbox in self.area_spinboxes.items():
+            qty = spinbox.value()
+            if qty > 0:
+                areas[area] = qty
+
+        return {
+            'areas': areas,
+            'num_teams': self.num_teams_spinbox.value()
+        }
+
 class ImportPreviewDialog(QDialog):
     def __init__(self, headers, preview_rows, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Pré-visualizar importação')
         self.resize(800, 400)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('Revise as primeiras linhas e mapeie as colunas para Nome / E-mail / Observações'))
+        layout.addWidget(QLabel('Revise as primeiras linhas e mapeie as colunas para ID / Nome / Área'))
         cols = headers if headers else []
         col_count = len(cols) if cols else (max((len(r) for r in preview_rows), default=0))
         self.table = QTableWidget(len(preview_rows), col_count)
@@ -2780,25 +2916,17 @@ class ImportPreviewDialog(QDialog):
         choices = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
         if not choices:
             choices = ['Col 1']
-        self.map_name = QComboBox(); self.map_email = QComboBox(); self.map_notes = QComboBox()
-        self.map_cpf = QComboBox(); self.map_phone = QComboBox(); self.map_grade = QComboBox()
+        self.map_id = QComboBox()
+        self.map_name = QComboBox()
+        self.map_area = QComboBox()
         for ch in choices:
+            self.map_id.addItem(ch)
             self.map_name.addItem(ch)
-            self.map_email.addItem(ch)
-            self.map_notes.addItem(ch)
-            self.map_cpf.addItem(ch)
-            self.map_phone.addItem(ch)
-            self.map_grade.addItem(ch)
+            self.map_area.addItem(ch)
+        form.addRow('Coluna ID:', self.map_id)
         form.addRow('Coluna Nome:', self.map_name)
-        form.addRow('Coluna E-mail:', self.map_email)
-        form.addRow('Coluna CPF:', self.map_cpf)
-        form.addRow('Coluna Telefone:', self.map_phone)
-        form.addRow('Coluna Série:', self.map_grade)
-        form.addRow('Coluna Observações:', self.map_notes)
+        form.addRow('Coluna Área:', self.map_area)
         layout.addLayout(form)
-        self.skip_dup = QCheckBox('Pular duplicados (mesmo nome+e-mail)')
-        self.skip_dup.setChecked(True)
-        layout.addWidget(self.skip_dup)
         btns = QHBoxLayout()
         ok = QPushButton('Confirmar')
         ok.setObjectName('primary')
@@ -2810,8 +2938,7 @@ class ImportPreviewDialog(QDialog):
         layout.addLayout(btns)
 
     def mapping_indices(self):
-        return (self.map_name.currentIndex(), self.map_email.currentIndex(), self.map_notes.currentIndex(), self.skip_dup.isChecked(),
-                self.map_cpf.currentIndex(), self.map_phone.currentIndex(), self.map_grade.currentIndex())
+        return (self.map_id.currentIndex(), self.map_name.currentIndex(), self.map_area.currentIndex())
 
 class TeamMemberDialog(QDialog):
     def __init__(self, team_id: int, parent=None):

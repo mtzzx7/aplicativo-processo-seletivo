@@ -63,3 +63,5 @@
 [2026-03-01 01:25:13] recalc_individual_summary Calculated for 5 members
 [2026-03-01 01:25:21] export_final_result file=resultado_final_oficial_20260301.csv, members=5
 [2026-03-01 01:27:46] process_status_change status=ENCERRADO
+[2026-03-04 14:03:52] import_xlsx file=Chamada do processo seletivo.xlsx, inserted=52, skipped=0
+[2026-03-04 18:21:41] import_xlsx file=Chamada do processo seletivo.xlsx, inserted=50, skipped=2
