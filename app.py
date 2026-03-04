@@ -1616,7 +1616,7 @@ class MainWindow(QMainWindow):
         btn_summary.setObjectName("primary")
         btn_summary.clicked.connect(self.recalc_team_summary)
         self.summary_table = QTableWidget(0, 5)
-        self.summary_table.setHorizontalHeaderLabels(["Equipe ID", "Nome", "AVG hidden", "Presença (%)", "Score Final"])
+        self.summary_table.setHorizontalHeaderLabels(["Equipe ID", "Nome", "AVG hidden", "Presença (%)", "Score Final", "AVG Imersão", "AVG Apresentação"])
         v.addWidget(self.chk_penalty)
         v.addWidget(btn_summary)
         v.addWidget(self.summary_table)
@@ -2158,11 +2158,12 @@ class MainWindow(QMainWindow):
     def recalc_team_summary(self):
         conn = connect_db(); c = conn.cursor()
         c.execute("""
-            SELECT t.id, t.name, COALESCE(AVG(e.hidden_score), 0.0) AS avg_hidden
+            SELECT t.id, t.name, COALESCE(AVG(e.hidden_score), 0.0) AS avg_hidden,
+                   COALESCE(AVG(e.immersion), 0.0) AS avg_immersion,
+                   COALESCE(AVG(e.presentation), 0.0) AS avg_presentation
             FROM teams t
             LEFT JOIN evaluations e ON e.team_id = t.id AND e.is_active = 1
             GROUP BY t.id, t.name
-            ORDER BY avg_hidden DESC
         """)
         rows = c.fetchall()
         c.execute("""
@@ -2174,19 +2175,23 @@ class MainWindow(QMainWindow):
         conn.close()
         apply_penalty = self.chk_penalty.isChecked()
         out = []
-        for tid, tname, avg_hidden in rows:
+        for tid, tname, avg_hidden, avg_immersion, avg_presentation in rows:
             pres_ratio = pres_map.get(tid, 0.0)
             final = avg_hidden
             if apply_penalty and pres_ratio < 0.75:
                 final *= 0.9
-            out.append((tid, tname, avg_hidden, pres_ratio*100.0, final))
+            out.append((tid, tname, avg_hidden, pres_ratio*100.0, final, avg_immersion, avg_presentation))
+        # Sort by Score Final desc, then avg_immersion desc, then avg_presentation desc for tie-breaking
+        out.sort(key=lambda x: (-x[4], -x[5], -x[6]))
         self.summary_table.setRowCount(len(out))
-        for r, (tid, tname, avg_h, pres_pct, final) in enumerate(out):
+        for r, (tid, tname, avg_h, pres_pct, final, avg_imm, avg_pres) in enumerate(out):
             self.summary_table.setItem(r, 0, QTableWidgetItem(str(tid)))
             self.summary_table.setItem(r, 1, QTableWidgetItem(tname))
             self.summary_table.setItem(r, 2, QTableWidgetItem(f"{avg_h:.3f}"))
             self.summary_table.setItem(r, 3, QTableWidgetItem(f"{pres_pct:.1f}"))
             self.summary_table.setItem(r, 4, QTableWidgetItem(f"{final:.3f}"))
+            self.summary_table.setItem(r, 5, QTableWidgetItem(f"{avg_imm:.3f}"))
+            self.summary_table.setItem(r, 6, QTableWidgetItem(f"{avg_pres:.3f}"))
 
     def recalc_individual_summary(self):
         conn = connect_db(); c = conn.cursor()
