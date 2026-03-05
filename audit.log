@@ -65,3 +65,9 @@
 [2026-03-01 01:27:46] process_status_change status=ENCERRADO
 [2026-03-04 14:03:52] import_xlsx file=Chamada do processo seletivo.xlsx, inserted=52, skipped=0
 [2026-03-04 18:21:41] import_xlsx file=Chamada do processo seletivo.xlsx, inserted=50, skipped=2
+[2026-03-05 17:27:55] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1449
+[2026-03-05 17:28:45] auto_assign_by_area teams=10,assigned=49
+[2026-03-05 17:37:54] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1449
+[2026-03-05 17:41:50] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1
+[2026-03-05 17:44:14] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1
+[2026-03-05 17:46:20] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1

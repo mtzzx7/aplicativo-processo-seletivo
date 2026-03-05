@@ -310,6 +310,26 @@ def init_db():
             print(f"Migration v9->v10 error: {e}")
         cur.execute("PRAGMA user_version = 10")
 
+    # v10 -> v11: ensure candidates table uses AUTOINCREMENT to avoid ID reuse
+    if ver < 11:
+        try:
+            cur.execute("""
+                CREATE TABLE candidates_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    area TEXT
+                )
+            """)
+            cur.execute("""
+                INSERT INTO candidates_new (id, name, area)
+                SELECT id, name, area FROM candidates
+            """)
+            cur.execute("DROP TABLE candidates")
+            cur.execute("ALTER TABLE candidates_new RENAME TO candidates")
+        except sqlite3.OperationalError as e:
+            print(f"Migration v10->v11 error: {e}")
+        cur.execute("PRAGMA user_version = 11")
+
     conn.commit()
     conn.close()
 
@@ -692,7 +712,9 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.Accepted:
                 QMessageBox.information(self, 'Importar Excel', 'Importação cancelada')
                 return
-            idx_id, idx_name, idx_area = dlg.mapping_indices()
+            idx_name, idx_area = dlg.mapping_indices()
+            # Limit to first 51 data rows to avoid importing huge spreadsheets
+            data_rows = data_rows[:51]
             conn = connect_db(); c = conn.cursor()
             for r in data_rows:
                 if all(val is None or str(val).strip() == '' for val in r):
@@ -704,18 +726,15 @@ class MainWindow(QMainWindow):
                         return str(v).strip() if v is not None else ''
                     except Exception:
                         return ''
-                id_val = get_idx(r, idx_id)
                 name = get_idx(r, idx_name)
                 area = get_idx(r, idx_area)
                 if not name.strip():
                     skipped += 1; continue
-                if not id_val.strip():
-                    skipped += 1; continue
+                # Always insert without specifying id; DB assigns autoincremented id
                 try:
-                    candidate_id = int(id_val)
-                    c.execute("INSERT INTO candidates (id,name,area) VALUES (?,?,?)", (candidate_id, name, area))
+                    c.execute("INSERT INTO candidates (name,area) VALUES (?,?)", (name, area))
                     inserted += 1
-                except Exception as e:
+                except Exception:
                     skipped += 1
             conn.commit(); conn.close()
             self.load_candidates()
@@ -734,6 +753,8 @@ class MainWindow(QMainWindow):
             if reader.fieldnames:
                 for r in reader:
                     rows.append(r)
+                # Limit to first 51 rows to avoid importing excessive data
+                rows = rows[:51]
                 headers = list(rows[0].keys()) if rows else []
                 preview_rows = [tuple(r.get(h, '') for h in headers) for r in rows[:10]]
             else:
@@ -749,15 +770,16 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.Accepted:
                 QMessageBox.information(self, 'Importar CSV', 'Importação cancelada')
                 return
-            idx_id, idx_name, idx_area = dlg.mapping_indices()
+            idx_name, idx_area = dlg.mapping_indices()
             conn = connect_db(); c = conn.cursor()
+            # Ensure we only process the first 51 rows (safety)
+            rows = rows[:51]
             for r in rows:
                 if '__raw__' in r:
                     raw = r['__raw__']
                     if all(val.strip() == '' for val in raw):
                         skipped += 1
                         continue
-                    id_val = raw[idx_id].strip() if len(raw) > idx_id else ''
                     name = raw[idx_name].strip() if len(raw) > idx_name else ''
                     area = raw[idx_area].strip() if len(raw) > idx_area else ''
                 else:
@@ -770,16 +792,13 @@ class MainWindow(QMainWindow):
                             return str(d.get(key,'')).strip()
                         except Exception:
                             return ''
-                    id_val = get_by_index(r, idx_id)
                     name = get_by_index(r, idx_name)
                     area = get_by_index(r, idx_area)
                 if not name.strip():
                     skipped += 1; continue
-                if not id_val.strip():
-                    skipped += 1; continue
+                # Always insert without specifying id; DB assigns autoincremented id
                 try:
-                    candidate_id = int(id_val)
-                    c.execute("INSERT INTO candidates (id,name,area) VALUES (?,?,?)", (candidate_id, name, area))
+                    c.execute("INSERT INTO candidates (name,area) VALUES (?,?)", (name, area))
                     inserted += 1
                 except Exception:
                     skipped += 1
@@ -2916,14 +2935,12 @@ class ImportPreviewDialog(QDialog):
         choices = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
         if not choices:
             choices = ['Col 1']
-        self.map_id = QComboBox()
+        # We only map Name and Area; IDs are assigned by the DB (autoincrement)
         self.map_name = QComboBox()
         self.map_area = QComboBox()
         for ch in choices:
-            self.map_id.addItem(ch)
             self.map_name.addItem(ch)
             self.map_area.addItem(ch)
-        form.addRow('Coluna ID:', self.map_id)
         form.addRow('Coluna Nome:', self.map_name)
         form.addRow('Coluna Área:', self.map_area)
         layout.addLayout(form)
@@ -2938,7 +2955,8 @@ class ImportPreviewDialog(QDialog):
         layout.addLayout(btns)
 
     def mapping_indices(self):
-        return (self.map_id.currentIndex(), self.map_name.currentIndex(), self.map_area.currentIndex())
+        # return (name_index, area_index)
+        return (self.map_name.currentIndex(), self.map_area.currentIndex())
 
 class TeamMemberDialog(QDialog):
     def __init__(self, team_id: int, parent=None):
