@@ -9,10 +9,17 @@ penalty_factor = 0.9
 
 [ui]
 restricted_tabs_when_closed = true
-# 6 = "Sobre"; 7 = "Dashboard"; 8 = "Admin (oculto)"
-default_locked_redirect_index = 6
+# 4 = "Prova de Lógica"; 5 = "Avaliações (Apresentação)"; 7 = "Sobre"; 8 = "Dashboard"; 9 = "Admin (oculto)"
+default_locked_redirect_index = 7
 
 [default_weights]
+# Pesos para avaliação de apresentação (equipe)
 immersion = 0.3
 development = 0.5
 presentation = 0.2
+
+[logic_test]
+# Prova de lógica - nota de 0-10, usada como critério de desempate
+enabled = true
+test_date = "2026-03-07"
+weight_as_tiebreaker = true

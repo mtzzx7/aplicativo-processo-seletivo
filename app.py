@@ -330,6 +330,28 @@ def init_db():
             print(f"Migration v10->v11 error: {e}")
         cur.execute("PRAGMA user_version = 11")
 
+    # v11 -> v12: Nova camada de avaliação - Prova de Lógica e Apresentação separadas
+    if ver < 12:
+        try:
+            # Nova tabela para prova de lógica (0-10)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS logic_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    candidate_id INTEGER NOT NULL,
+                    test_date TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    notes TEXT,
+                    registered_by TEXT,
+                    registered_at TEXT,
+                    FOREIGN KEY(candidate_id) REFERENCES candidates(id)
+                )
+            """)
+            # Adicionar campo evaluation_type em evaluations (PRESENTATION = padrão)
+            cur.execute("ALTER TABLE evaluations ADD COLUMN evaluation_type TEXT DEFAULT 'PRESENTATION'")
+        except sqlite3.OperationalError as e:
+            print(f"Migration v11->v12 error: {e}")
+        cur.execute("PRAGMA user_version = 12")
+
     conn.commit()
     conn.close()
 
@@ -470,7 +492,7 @@ class MainWindow(QMainWindow):
         self.sidebar = QListWidget()
         self.sidebar.addItems([
             "Inscrições", "Equipes", "Sessões", "Presença",
-            "Avaliações", "Diário de Bordo", "Sobre", "Dashboard", "Admin (oculto)"
+            "Prova de Lógica", "Avaliações (Apresentação)", "Diário de Bordo", "Sobre", "Dashboard", "Admin (oculto)"
         ])
         self.sidebar.currentRowChanged.connect(self.on_nav)
         hb.addWidget(self.sidebar, 1)
@@ -483,11 +505,12 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.page_teams())           # 1
         self.stack.addWidget(self.page_sessions())        # 2
         self.stack.addWidget(self.page_attendance())      # 3
-        self.stack.addWidget(self.page_evaluations())     # 4
-        self.stack.addWidget(self.page_diary())           # 5
-        self.stack.addWidget(self.page_about())           # 6
-        self.stack.addWidget(self.page_dashboard())       # 7
-        self.stack.addWidget(self.page_admin())           # 8
+        self.stack.addWidget(self.page_logic_test())      # 4  (NEW)
+        self.stack.addWidget(self.page_evaluations())     # 5  (was 4)
+        self.stack.addWidget(self.page_diary())           # 6  (was 5)
+        self.stack.addWidget(self.page_about())           # 7  (was 6)
+        self.stack.addWidget(self.page_dashboard())       # 8  (was 7)
+        self.stack.addWidget(self.page_admin())           # 9  (was 8)
 
         self.sidebar.setCurrentRow(0)
 
@@ -1269,6 +1292,173 @@ class MainWindow(QMainWindow):
         self.load_attendance()
 
     # --------------------------
+    # PÁGINA: PROVA DE LÓGICA (0-10, desempate)
+    # --------------------------
+    def page_logic_test(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        form = QFormLayout()
+        self.logic_candidate_cb = QComboBox(); self.load_logic_candidates_combo()
+        self.logic_date_in = QLineEdit("2026-03-07")
+        self.logic_score_sb = QDoubleSpinBox(); self.logic_score_sb.setRange(0.0, 10.0); self.logic_score_sb.setValue(5.0)
+        self.logic_score_sb.setDecimals(1)
+        self.logic_notes = QLineEdit()
+        form.addRow("Candidato:", self.logic_candidate_cb)
+        form.addRow("Data da Prova (YYYY-MM-DD):", self.logic_date_in)
+        form.addRow("Nota (0-10):", self.logic_score_sb)
+        form.addRow("Observações:", self.logic_notes)
+        add_logic = QPushButton("Registrar Nota de Lógica")
+        add_logic.setObjectName("primary")
+        if get_process_status() == "ENCERRADO":
+            add_logic.setDisabled(True)
+            add_logic.setToolTip("Processo encerrado. Alterações não são mais permitidas.")
+        add_logic.clicked.connect(self.add_logic_score)
+        v.addLayout(form)
+        v.addWidget(add_logic)
+        
+        # Tabela de notas registradas
+        self.logic_table = QTableWidget(0, 7)
+        self.logic_table.setHorizontalHeaderLabels(["ID", "Candidato", "Data", "Nota (0-10)", "Obs.", "Registrado por", "Data/Hora"])
+        self.logic_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.logic_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        v.addWidget(self.logic_table)
+        
+        btn_row = QHBoxLayout()
+        refresh = QPushButton("Atualizar")
+        refresh.setObjectName("primary")
+        refresh.clicked.connect(self.load_logic_scores)
+        edit_btn = QPushButton("Editar nota selecionada")
+        edit_btn.setObjectName("primary")
+        edit_btn.clicked.connect(self.edit_selected_logic_score)
+        delete_btn = QPushButton("Remover nota selecionada")
+        delete_btn.setObjectName("danger")
+        delete_btn.clicked.connect(self.delete_selected_logic_score)
+        btn_row.addWidget(refresh)
+        btn_row.addWidget(edit_btn)
+        btn_row.addWidget(delete_btn)
+        v.addLayout(btn_row)
+        
+        self.load_logic_scores()
+        return w
+    
+    def load_logic_candidates_combo(self):
+        """Carrega todos os candidatos no combobox"""
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute("SELECT id, name FROM candidates ORDER BY name ASC")
+        rows = c.fetchall()
+        conn.close()
+        self.logic_candidate_cb.clear()
+        for cid, name in rows:
+            self.logic_candidate_cb.addItem(name, cid)
+    
+    def add_logic_score(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo seletivo encerrado. Não é possível registrar notas.")
+            return
+        
+        candidate_id = self.logic_candidate_cb.currentData()
+        if candidate_id is None:
+            QMessageBox.warning(self, "Erro", "Selecione um candidato")
+            return
+        
+        test_date = self.logic_date_in.text().strip()
+        try:
+            score = float(self.logic_score_sb.value())
+        except Exception:
+            QMessageBox.warning(self, "Erro", "Nota deve ser um número entre 0 e 10")
+            return
+        
+        if score < 0 or score > 10:
+            QMessageBox.warning(self, "Erro", "Nota deve estar entre 0 e 10")
+            return
+        
+        notes = self.logic_notes.text().strip() or None
+        registered_by = "Admin"  # Pode ser customizado depois
+        
+        conn = connect_db()
+        c = conn.cursor()
+        
+        # Verificar se já existe nota registrada para este candidato
+        c.execute("""
+            SELECT id FROM logic_scores
+            WHERE candidate_id = ? AND test_date = ?
+        """, (candidate_id, test_date))
+        
+        if c.fetchone():
+            QMessageBox.warning(self, "Aviso", f"Já existe nota registrada para este candidato na data {test_date}. Edite a existente.")
+            conn.close()
+            return
+        
+        try:
+            c.execute("""
+                INSERT INTO logic_scores (candidate_id, test_date, score, notes, registered_by, registered_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (candidate_id, test_date, score, notes, registered_by, now_str()))
+            conn.commit()
+            QMessageBox.information(self, "OK", f"Nota de lógica registrada para o candidato (ID: {candidate_id})")
+            self.logic_notes.clear()
+            self.load_logic_scores()
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Não foi possível registrar a nota: {e}")
+        finally:
+            conn.close()
+    
+    def load_logic_scores(self):
+        """Carrega todas as notas de lógica na tabela"""
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT ls.id, c.name, ls.test_date, ls.score, IFNULL(ls.notes, ''),
+                   ls.registered_by, ls.registered_at
+            FROM logic_scores ls
+            JOIN candidates c ON c.id = ls.candidate_id
+            ORDER BY ls.test_date DESC, c.name ASC
+        """)
+        rows = c.fetchall()
+        conn.close()
+        
+        self.logic_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for cidx, val in enumerate(row):
+                self.logic_table.setItem(r, cidx, QTableWidgetItem(str(val)))
+    
+    def edit_selected_logic_score(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível editar notas.")
+            return
+        
+        score_id = self._get_selected_id(self.logic_table, "nota de lógica")
+        if score_id is None:
+            return
+        
+        dlg = LogicScoreEditDialog(score_id, self)
+        if dlg.exec() == QDialog.Accepted:
+            self.load_logic_scores()
+            self.load_logic_candidates_combo()
+    
+    def delete_selected_logic_score(self):
+        if get_process_status() == "ENCERRADO":
+            QMessageBox.warning(self, "Ação Bloqueada", "Processo encerrado. Não é possível excluir notas.")
+            return
+        
+        score_id = self._get_selected_id(self.logic_table, "nota de lógica")
+        if score_id is None:
+            return
+        
+        ok = QMessageBox.question(self, "Confirmar", f"Remover nota de lógica {score_id}?")
+        if ok != QMessageBox.Yes:
+            return
+        
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM logic_scores WHERE id=?", (score_id,))
+        conn.commit()
+        conn.close()
+        audit('logic_score_delete', f'score_id={score_id}')
+        self.load_logic_scores()
+
+    # --------------------------
     # PÁGINA: AVALIAÇÕES (IDs via ComboBox)
     # --------------------------
     def page_evaluations(self):
@@ -1289,7 +1479,7 @@ class MainWindow(QMainWindow):
         form.addRow("Desenvolvimento (1–4):", self.eval_dev_sb)
         form.addRow("Apresentação (1–4):", self.eval_pres_sb)
         form.addRow("Comentário:", self.eval_comment)
-        add_eval = QPushButton("Registrar avaliação")
+        add_eval = QPushButton("Registrar Avaliação de Apresentação")
         add_eval.setObjectName("primary")
         if get_process_status() == "ENCERRADO":
             add_eval.setDisabled(True)
@@ -2839,6 +3029,92 @@ class DiaryEntryEditDialog(QDialog):
         conn.close()
         audit('diary_entry_update', f'entry_id={self.entry_id}')
         QMessageBox.information(self, "Sucesso", "Entrada atualizada.")
+        self.accept()
+
+class LogicScoreEditDialog(QDialog):
+    def __init__(self, score_id: int, parent=None):
+        super().__init__(parent)
+        self.score_id = score_id
+        self.setWindowTitle(f"Editar Nota de Lógica {score_id}")
+        self.resize(500, 300)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.candidate_cb = QComboBox()
+        self.load_candidates_combo()
+        self.test_date_in = QLineEdit()
+        self.score_sb = QDoubleSpinBox()
+        self.score_sb.setRange(0.0, 10.0)
+        self.score_sb.setDecimals(1)
+        self.notes_in = QLineEdit()
+        
+        form.addRow("Candidato:", self.candidate_cb)
+        form.addRow("Data da Prova (YYYY-MM-DD):", self.test_date_in)
+        form.addRow("Nota (0-10):", self.score_sb)
+        form.addRow("Observações:", self.notes_in)
+        layout.addLayout(form)
+
+        save_btn = QPushButton("Salvar")
+        save_btn.setObjectName("primary")
+        save_btn.clicked.connect(self.save_data)
+        layout.addWidget(save_btn)
+        self.load_data()
+
+    def load_candidates_combo(self):
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute("SELECT id, name FROM candidates ORDER BY name ASC")
+        rows = c.fetchall()
+        conn.close()
+        self.candidate_cb.clear()
+        for cid, name in rows:
+            self.candidate_cb.addItem(name, cid)
+
+    def load_data(self):
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT candidate_id, test_date, score, IFNULL(notes, '')
+            FROM logic_scores WHERE id=?
+        """, (self.score_id,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            QMessageBox.warning(self, "Erro", "Nota não encontrada.")
+            self.reject()
+            return
+        candidate_id, test_date, score, notes = row
+        idx = self.candidate_cb.findData(candidate_id)
+        if idx >= 0:
+            self.candidate_cb.setCurrentIndex(idx)
+        self.test_date_in.setText(test_date or "")
+        self.score_sb.setValue(float(score) if score else 0.0)
+        self.notes_in.setText(notes or "")
+
+    def save_data(self):
+        candidate_id = self.candidate_cb.currentData()
+        test_date = self.test_date_in.text().strip()
+        score = self.score_sb.value()
+        notes = self.notes_in.text().strip() or None
+        
+        if candidate_id is None or not test_date:
+            QMessageBox.warning(self, "Erro", "Candidato e data são obrigatórios.")
+            return
+        
+        if score < 0 or score > 10:
+            QMessageBox.warning(self, "Erro", "Nota deve estar entre 0 e 10.")
+            return
+        
+        conn = connect_db()
+        c = conn.cursor()
+        c.execute(
+            "UPDATE logic_scores SET candidate_id=?, test_date=?, score=?, notes=? WHERE id=?",
+            (candidate_id, test_date, score, notes, self.score_id)
+        )
+        conn.commit()
+        conn.close()
+        audit('logic_score_update', f'score_id={self.score_id}')
+        QMessageBox.information(self, "Sucesso", "Nota atualizada.")
         self.accept()
 
 class AdvancedAutoAssignDialog(QDialog):

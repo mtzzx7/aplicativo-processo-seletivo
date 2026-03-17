@@ -73,3 +73,31 @@
 [2026-03-05 17:46:20] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1
 [2026-03-06 11:32:52] auto_assign_by_area teams=11,assigned=48
 [2026-03-06 11:34:52] auto_assign_by_area teams=10,assigned=48
+[2026-03-17 11:15:11] team_member_add team=22, candidate=50
+[2026-03-17 11:15:18] team_member_add team=22, candidate=15
+[2026-03-17 11:15:26] team_member_add team=22, candidate=20
+[2026-03-17 11:15:39] team_member_add team=22, candidate=35
+[2026-03-17 11:15:47] team_member_add team=22, candidate=10
+[2026-03-17 11:16:08] team_member_add team=23, candidate=30
+[2026-03-17 11:16:22] team_member_add team=23, candidate=39
+[2026-03-17 11:17:39] team_member_add team=23, candidate=51
+[2026-03-17 11:17:46] team_member_add team=23, candidate=12
+[2026-03-17 11:18:04] team_member_add team=24, candidate=27
+[2026-03-17 11:18:20] team_member_add team=24, candidate=31
+[2026-03-17 11:18:57] team_member_add team=24, candidate=32
+[2026-03-17 11:19:03] team_member_add team=24, candidate=5
+[2026-03-17 11:19:31] team_member_add team=25, candidate=6
+[2026-03-17 11:19:44] team_member_add team=25, candidate=42
+[2026-03-17 11:19:55] team_member_add team=25, candidate=44
+[2026-03-17 11:20:05] team_member_add team=25, candidate=24
+[2026-03-17 11:20:16] team_member_add team=25, candidate=4
+[2026-03-17 11:20:20] team_member_remove team=25, candidate=4
+[2026-03-17 11:20:25] team_member_add team=25, candidate=4
+[2026-03-17 11:20:40] team_member_add team=26, candidate=26
+[2026-03-17 11:20:51] team_member_add team=26, candidate=37
+[2026-03-17 11:21:17] team_member_add team=26, candidate=28
+[2026-03-17 11:21:29] team_member_add team=26, candidate=18
+[2026-03-17 11:22:19] team_member_add team=26, candidate=52
+[2026-03-17 11:48:11] calculate_hidden_scores recalculated using internal weights for active evaluations
+[2026-03-17 11:48:20] recalc_individual_summary Calculated for 0 members
+[2026-03-17 11:48:24] recalc_individual_summary Calculated for 0 members
