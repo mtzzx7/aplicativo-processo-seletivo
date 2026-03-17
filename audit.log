@@ -71,3 +71,5 @@
 [2026-03-05 17:41:50] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1
 [2026-03-05 17:44:14] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1
 [2026-03-05 17:46:20] import_xlsx file=ProcessoAPP.xlsx, inserted=50, skipped=1
+[2026-03-06 11:32:52] auto_assign_by_area teams=11,assigned=48
+[2026-03-06 11:34:52] auto_assign_by_area teams=10,assigned=48
