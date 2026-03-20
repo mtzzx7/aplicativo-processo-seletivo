@@ -290,6 +290,26 @@ def init_db():
     # v9 -> v10: Add area column and remove AUTOINCREMENT from candidates
     if ver < 10:
         try:
+            # Disable foreign keys to avoid constraints during migration
+            cur.execute("PRAGMA foreign_keys = OFF")
+            # Delete data from dependent tables to avoid foreign key constraints
+            try:
+                cur.execute("DELETE FROM team_members")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cur.execute("DELETE FROM member_contribution")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cur.execute("DELETE FROM logic_scores")
+            except sqlite3.OperationalError:
+                pass
+            # Drop tables that reference candidates to avoid foreign key constraints
+            cur.execute("DROP TABLE IF EXISTS team_members")
+            cur.execute("DROP TABLE IF EXISTS member_contribution")
+            cur.execute("DROP TABLE IF EXISTS logic_scores")
+
             # Create new table without AUTOINCREMENT, with only name and area
             cur.execute("""
                 CREATE TABLE candidates_new (
@@ -306,13 +326,56 @@ def init_db():
             # Drop old table and rename new one
             cur.execute("DROP TABLE candidates")
             cur.execute("ALTER TABLE candidates_new RENAME TO candidates")
+
+            # Recreate the dependent tables
+            cur.execute("""
+                CREATE TABLE team_members (
+                    team_id INTEGER,
+                    candidate_id INTEGER,
+                    PRIMARY KEY(team_id, candidate_id),
+                    FOREIGN KEY(team_id) REFERENCES teams(id),
+                    FOREIGN KEY(candidate_id) REFERENCES candidates(id)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE member_contribution (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    evaluation_id INTEGER,
+                    member_id INTEGER,
+                    weight REAL,
+                    note TEXT,
+                    FOREIGN KEY(evaluation_id) REFERENCES evaluations(id),
+                    FOREIGN KEY(member_id) REFERENCES candidates(id)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE logic_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    candidate_id INTEGER NOT NULL,
+                    test_date TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    notes TEXT,
+                    registered_by TEXT,
+                    registered_at TEXT,
+                    FOREIGN KEY(candidate_id) REFERENCES candidates(id)
+                )
+            """)
+            # Re-enable foreign keys
+            cur.execute("PRAGMA foreign_keys = ON")
         except sqlite3.OperationalError as e:
             print(f"Migration v9->v10 error: {e}")
+            # Re-enable foreign keys in case of error
+            cur.execute("PRAGMA foreign_keys = ON")
         cur.execute("PRAGMA user_version = 10")
 
     # v10 -> v11: ensure candidates table uses AUTOINCREMENT to avoid ID reuse
     if ver < 11:
         try:
+            # Drop tables that reference candidates to avoid foreign key constraints
+            cur.execute("DROP TABLE IF EXISTS team_members")
+            cur.execute("DROP TABLE IF EXISTS member_contribution")
+            cur.execute("DROP TABLE IF EXISTS logic_scores")
+
             cur.execute("""
                 CREATE TABLE candidates_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -326,6 +389,40 @@ def init_db():
             """)
             cur.execute("DROP TABLE candidates")
             cur.execute("ALTER TABLE candidates_new RENAME TO candidates")
+
+            # Recreate the dependent tables
+            cur.execute("""
+                CREATE TABLE team_members (
+                    team_id INTEGER,
+                    candidate_id INTEGER,
+                    PRIMARY KEY(team_id, candidate_id),
+                    FOREIGN KEY(team_id) REFERENCES teams(id),
+                    FOREIGN KEY(candidate_id) REFERENCES candidates(id)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE member_contribution (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    evaluation_id INTEGER,
+                    member_id INTEGER,
+                    weight REAL,
+                    note TEXT,
+                    FOREIGN KEY(evaluation_id) REFERENCES evaluations(id),
+                    FOREIGN KEY(member_id) REFERENCES candidates(id)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE logic_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    candidate_id INTEGER NOT NULL,
+                    test_date TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    notes TEXT,
+                    registered_by TEXT,
+                    registered_at TEXT,
+                    FOREIGN KEY(candidate_id) REFERENCES candidates(id)
+                )
+            """)
         except sqlite3.OperationalError as e:
             print(f"Migration v10->v11 error: {e}")
         cur.execute("PRAGMA user_version = 11")
@@ -347,10 +444,31 @@ def init_db():
                 )
             """)
             # Adicionar campo evaluation_type em evaluations (PRESENTATION = padrão)
-            cur.execute("ALTER TABLE evaluations ADD COLUMN evaluation_type TEXT DEFAULT 'PRESENTATION'")
+            try:
+                cur.execute("ALTER TABLE evaluations ADD COLUMN evaluation_type TEXT DEFAULT 'PRESENTATION'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         except sqlite3.OperationalError as e:
             print(f"Migration v11->v12 error: {e}")
         cur.execute("PRAGMA user_version = 12")
+
+    # Ensure all columns exist
+    try:
+        cur.execute("ALTER TABLE candidates ADD COLUMN area TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("ALTER TABLE candidates ADD COLUMN grade TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("ALTER TABLE candidates ADD COLUMN cpf TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("ALTER TABLE candidates ADD COLUMN phone TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -585,16 +703,18 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         self.name_in = QLineEdit()
         self.area_in = QLineEdit()
+        self.grade_in = QLineEdit()
         form.addRow("Nome Completo:", self.name_in)
         form.addRow("Área:", self.area_in)
+        form.addRow("Nota:", self.grade_in)
         add_btn = QPushButton("Adicionar candidato")
         add_btn.setObjectName("primary")
         add_btn.clicked.connect(self.add_candidate)
         layout.addLayout(form)
         layout.addWidget(add_btn)
 
-        self.cand_table = QTableWidget(0, 3)
-        self.cand_table.setHorizontalHeaderLabels(["ID", "Nome", "Área"])
+        self.cand_table = QTableWidget(0, 4)
+        self.cand_table.setHorizontalHeaderLabels(["ID", "Nome", "Área", "Nota"])
         self.cand_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cand_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.cand_table.setSortingEnabled(True)
@@ -604,7 +724,7 @@ class MainWindow(QMainWindow):
         # busca
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar por nome ou área")
+        self.search_input.setPlaceholderText("Buscar por nome, área ou nota")
         self.search_input.textChanged.connect(self.load_candidates)
         search_row.addWidget(QLabel("Buscar:"))
         search_row.addWidget(self.search_input)
@@ -635,6 +755,7 @@ class MainWindow(QMainWindow):
     def add_candidate(self):
         name = self.name_in.text().strip()
         area = self.area_in.text().strip()
+        grade = self.grade_in.text().strip()
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
             return
@@ -643,23 +764,24 @@ class MainWindow(QMainWindow):
             return
         conn = connect_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO candidates (name,area) VALUES (?,?)", (name, area))
+        cur.execute("INSERT INTO candidates (name,area,grade) VALUES (?,?,?)", (name, area, grade))
         conn.commit()
         conn.close()
         self.name_in.clear()
         self.area_in.clear()
+        self.grade_in.clear()
         self.load_candidates()
 
     def load_candidates(self):
         conn = connect_db()
         cur = conn.cursor()
-        q = "SELECT id,name,area FROM candidates"
+        q = "SELECT id,name,area,grade FROM candidates"
         params = ()
         term = getattr(self, 'search_input', None)
         if term and term.text().strip():
             s = '%' + term.text().strip() + '%'
-            q += " WHERE name LIKE ? OR area LIKE ?"
-            params = (s, s)
+            q += " WHERE name LIKE ? OR area LIKE ? OR grade LIKE ?"
+            params = (s, s, s)
         q += " ORDER BY id DESC"
         cur.execute(q, params)
         rows = cur.fetchall()
@@ -735,7 +857,7 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.Accepted:
                 QMessageBox.information(self, 'Importar Excel', 'Importação cancelada')
                 return
-            idx_name, idx_area = dlg.mapping_indices()
+            idx_name, idx_area, idx_grade = dlg.mapping_indices()
             # Limit to first 51 data rows to avoid importing huge spreadsheets
             data_rows = data_rows[:51]
             conn = connect_db(); c = conn.cursor()
@@ -751,11 +873,12 @@ class MainWindow(QMainWindow):
                         return ''
                 name = get_idx(r, idx_name)
                 area = get_idx(r, idx_area)
+                grade = get_idx(r, idx_grade)
                 if not name.strip():
                     skipped += 1; continue
                 # Always insert without specifying id; DB assigns autoincremented id
                 try:
-                    c.execute("INSERT INTO candidates (name,area) VALUES (?,?)", (name, area))
+                    c.execute("INSERT INTO candidates (name,area,grade) VALUES (?,?,?)", (name, area, grade))
                     inserted += 1
                 except Exception:
                     skipped += 1
@@ -793,7 +916,7 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.Accepted:
                 QMessageBox.information(self, 'Importar CSV', 'Importação cancelada')
                 return
-            idx_name, idx_area = dlg.mapping_indices()
+            idx_name, idx_area, idx_grade = dlg.mapping_indices()
             conn = connect_db(); c = conn.cursor()
             # Ensure we only process the first 51 rows (safety)
             rows = rows[:51]
@@ -805,6 +928,7 @@ class MainWindow(QMainWindow):
                         continue
                     name = raw[idx_name].strip() if len(raw) > idx_name else ''
                     area = raw[idx_area].strip() if len(raw) > idx_area else ''
+                    grade = raw[idx_grade].strip() if len(raw) > idx_grade else ''
                 else:
                     if all(val.strip() == '' for val in r.values()):
                         skipped += 1
@@ -817,11 +941,12 @@ class MainWindow(QMainWindow):
                             return ''
                     name = get_by_index(r, idx_name)
                     area = get_by_index(r, idx_area)
+                    grade = get_by_index(r, idx_grade)
                 if not name.strip():
                     skipped += 1; continue
                 # Always insert without specifying id; DB assigns autoincremented id
                 try:
-                    c.execute("INSERT INTO candidates (name,area) VALUES (?,?)", (name, area))
+                    c.execute("INSERT INTO candidates (name,area,grade) VALUES (?,?,?)", (name, area, grade))
                     inserted += 1
                 except Exception:
                     skipped += 1
@@ -2263,9 +2388,9 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Exportar", "Nenhuma contribuição individual encontrada para gerar o ranking.")
                 return
 
-            # 4. Obter dados dos candidatos (nome) e equipes
-            c.execute("SELECT id, name FROM candidates")
-            candidate_data = {cid: name for cid, name in c.fetchall()}
+            # 4. Obter dados dos candidatos (nome, grade) e equipes
+            c.execute("SELECT id, name, grade FROM candidates")
+            candidate_data = {cid: (name, grade) for cid, name, grade in c.fetchall()}
             
             # Subquery para pegar a equipe mais recente de um membro (ou uma qualquer)
             c.execute("""
@@ -2284,15 +2409,17 @@ class MainWindow(QMainWindow):
         summary_data = []
         for mid, data in member_scores.items():
             if data['eval_count'] > 0:
+                name, grade = candidate_data.get(mid, (f'Candidato ID {mid}', 0.0))
                 summary_data.append({
                     'id': mid,
-                    'name': candidate_data.get(mid, f'Candidato ID {mid}'),
+                    'name': name,
                     'team': member_teams.get(mid, 'Sem equipe'),
-                    'final_score': data['total_score']
+                    'final_score': data['total_score'],
+                    'grade': float(grade or 0.0)
                 })
         
         # 6. Ordenar por score para gerar o ranking
-        summary_data.sort(key=lambda x: x['final_score'], reverse=True)
+        summary_data.sort(key=lambda x: (-x['final_score'], -x['grade']))
 
         # 7. Escolher local para salvar
         default_filename = f"ranking_interno_{datetime.now().strftime('%Y%m%d')}.csv"
@@ -2501,8 +2628,8 @@ class MainWindow(QMainWindow):
             member_scores[member_id]['eval_count'] += 1
 
         # 4. Obter dados dos candidatos (nome, equipe atual)
-        c.execute("SELECT id, name FROM candidates")
-        candidate_data = {cid: name for cid, name in c.fetchall()}
+        c.execute("SELECT id, name, grade FROM candidates")
+        candidate_data = {cid: (name, grade) for cid, name, grade in c.fetchall()}
         c.execute("SELECT tm.candidate_id, t.name FROM team_members tm JOIN teams t ON tm.team_id = t.id")
         # Pega a primeira equipe que encontrar para cada membro, para simplificar
         member_teams = {cid: tname for cid, tname in c.fetchall()}
@@ -2512,16 +2639,27 @@ class MainWindow(QMainWindow):
         # 5. Montar tabela de resultados
         summary_data = []
         for mid, data in member_scores.items():
+            name, grade = candidate_data.get(mid, ('N/A', 0.0))
             summary_data.append({
                 'id': mid,
-                'name': candidate_data.get(mid, 'N/A'),
+                'name': name,
                 'team': member_teams.get(mid, 'Sem equipe'),
                 'score': data['total_score'],
-                'evals': data['eval_count']
+                'evals': data['eval_count'],
+                'grade': float(grade or 0.0)
             })
         
-        # Ordenar por score
-        summary_data.sort(key=lambda x: x['score'], reverse=True)
+        # Ordenar por score desc, depois por grade desc para desempate
+        summary_data.sort(key=lambda x: (-x['score'], -x['grade']))
+
+        self.individual_summary_table.setRowCount(len(summary_data))
+        for r, item in enumerate(summary_data):
+            self.individual_summary_table.setItem(r, 0, QTableWidgetItem(str(item['id'])))
+            self.individual_summary_table.setItem(r, 1, QTableWidgetItem(item['name']))
+            self.individual_summary_table.setItem(r, 2, QTableWidgetItem(item['team']))
+            self.individual_summary_table.setItem(r, 3, QTableWidgetItem(f"{item['score']:.3f}"))
+            self.individual_summary_table.setItem(r, 4, QTableWidgetItem(str(item['evals'])))
+            # Adicionar coluna para grade se necessário, mas por enquanto só no sort
 
         self.individual_summary_table.setRowCount(len(summary_data))
         for r, item in enumerate(summary_data):
@@ -2647,8 +2785,10 @@ class CandidateDialog(QDialog):
         form = QFormLayout()
         self.name_in = QLineEdit()
         self.area_in = QLineEdit()
+        self.grade_in = QLineEdit()
         form.addRow("Nome:", self.name_in)
         form.addRow("Área:", self.area_in)
+        form.addRow("Nota:", self.grade_in)
         layout.addLayout(form)
 
         save_btn = QPushButton("Salvar Alterações")
@@ -2684,11 +2824,12 @@ class CandidateDialog(QDialog):
 
     def load_data(self):
         conn = connect_db(); c = conn.cursor()
-        c.execute("SELECT name,area FROM candidates WHERE id=?", (self.cid,))
+        c.execute("SELECT name,area,grade FROM candidates WHERE id=?", (self.cid,))
         r = c.fetchone()
         if r:
             self.name_in.setText(r[0] or "")
             self.area_in.setText(r[1] or "")
+            self.grade_in.setText(r[2] or "")
 
         c.execute("SELECT t.id,t.name FROM teams t JOIN team_members m ON t.id=m.team_id WHERE m.candidate_id=?", (self.cid,))
         mems = c.fetchall()
@@ -2706,6 +2847,7 @@ class CandidateDialog(QDialog):
     def save_data(self):
         name = self.name_in.text().strip()
         area = self.area_in.text().strip()
+        grade = self.grade_in.text().strip()
         if not name:
             QMessageBox.warning(self, "Erro", "Nome é obrigatório")
             return
@@ -2716,9 +2858,9 @@ class CandidateDialog(QDialog):
         c = conn.cursor()
         c.execute("""
             UPDATE candidates SET
-            name=?, area=?
+            name=?, area=?, grade=?
             WHERE id=?
-        """, (name, area, self.cid))
+        """, (name, area, grade, self.cid))
         conn.commit()
         conn.close()
         QMessageBox.information(self, "Sucesso", "Candidato atualizado.")
@@ -3195,7 +3337,7 @@ class ImportPreviewDialog(QDialog):
         self.setWindowTitle('Pré-visualizar importação')
         self.resize(800, 400)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('Revise as primeiras linhas e mapeie as colunas para ID / Nome / Área'))
+        layout.addWidget(QLabel('Revise as primeiras linhas e mapeie as colunas para Nome / Área / Nota'))
         cols = headers if headers else []
         col_count = len(cols) if cols else (max((len(r) for r in preview_rows), default=0))
         self.table = QTableWidget(len(preview_rows), col_count)
@@ -3211,14 +3353,17 @@ class ImportPreviewDialog(QDialog):
         choices = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
         if not choices:
             choices = ['Col 1']
-        # We only map Name and Area; IDs are assigned by the DB (autoincrement)
+        # Map Name, Area, and Grade
         self.map_name = QComboBox()
         self.map_area = QComboBox()
+        self.map_grade = QComboBox()
         for ch in choices:
             self.map_name.addItem(ch)
             self.map_area.addItem(ch)
+            self.map_grade.addItem(ch)
         form.addRow('Coluna Nome:', self.map_name)
         form.addRow('Coluna Área:', self.map_area)
+        form.addRow('Coluna Nota:', self.map_grade)
         layout.addLayout(form)
         btns = QHBoxLayout()
         ok = QPushButton('Confirmar')
@@ -3231,8 +3376,8 @@ class ImportPreviewDialog(QDialog):
         layout.addLayout(btns)
 
     def mapping_indices(self):
-        # return (name_index, area_index)
-        return (self.map_name.currentIndex(), self.map_area.currentIndex())
+        # return (name_index, area_index, grade_index)
+        return (self.map_name.currentIndex(), self.map_area.currentIndex(), self.map_grade.currentIndex())
 
 class TeamMemberDialog(QDialog):
     def __init__(self, team_id: int, parent=None):
@@ -3349,8 +3494,34 @@ class TeamMemberDialog(QDialog):
 # --------------------------------
 # MAIN
 # --------------------------------
+
+def import_grades_from_excel():
+    import os
+    excel_file = "notas.xlsx"
+    if not os.path.exists(excel_file):
+        print(f"Arquivo {excel_file} não encontrado. Pulando importação de notas.")
+        return
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(excel_file)
+        ws = wb.active
+        conn = connect_db()
+        cur = conn.cursor()
+        for row in ws.iter_rows(min_row=2, values_only=True):  # assume header in row 1
+            if row[0] and row[1]:  # name and grade
+                name = str(row[0]).strip()
+                grade = str(row[1]).strip()
+                # Update grade for candidate with this name
+                cur.execute("UPDATE candidates SET grade = ? WHERE name = ?", (grade, name))
+        conn.commit()
+        conn.close()
+        print("Notas importadas com sucesso do Excel.")
+    except Exception as e:
+        print(f"Erro ao importar notas: {e}")
+
 def main():
     init_db()
+    import_grades_from_excel()
     # backup automático ao abrir
     backup_snapshot(prefix="startup")
     app = QApplication(sys.argv)
